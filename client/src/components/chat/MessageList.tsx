@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { format, isToday, isYesterday } from 'date-fns'
 import { fr } from 'date-fns/locale'
-import { Pencil, Trash2, SmilePlus, Pin } from 'lucide-react'
+import { Pencil, Trash2, SmilePlus, MessagesSquare } from 'lucide-react'
 import { useAuth } from '../../store/auth'
 import { useChat } from '../../store/chat'
 
@@ -10,6 +10,7 @@ interface Props {
   serverId: string
   onDeleteMessage: (msgId: string) => void
   onEditMessage: (msgId: string, content: string) => void
+  onOpenThread?: (msgId: string) => void
 }
 
 function formatDate(dateStr: string) {
@@ -25,7 +26,7 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-export default function MessageList({ channelId, serverId, onDeleteMessage, onEditMessage }: Props) {
+export default function MessageList({ channelId, serverId, onDeleteMessage, onEditMessage, onOpenThread }: Props) {
   const { user } = useAuth()
   const messages = useChat(s => s.messagesByChannel[channelId] ?? [])
   const typing = useChat(s => s.typing[channelId])
@@ -130,6 +131,15 @@ export default function MessageList({ channelId, serverId, onDeleteMessage, onEd
               <button className="p-1.5 text-fc-muted hover:text-white rounded hover:bg-fc-hover transition" title="Réagir">
                 <SmilePlus size={14} />
               </button>
+              {onOpenThread && (
+                <button
+                  onClick={() => onOpenThread(msg.id)}
+                  className="p-1.5 text-fc-muted hover:text-white rounded hover:bg-fc-hover transition"
+                  title="Ouvrir thread"
+                >
+                  <MessagesSquare size={14} />
+                </button>
+              )}
               {isOwn && (
                 <button
                   onClick={() => onEditMessage(msg.id, msg.content ?? '')}

@@ -1,41 +1,44 @@
 import { useEffect, useState } from 'react'
 import { useParams, Navigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Hash, Users, Bell, Pin, Search } from 'lucide-react'
+import { Hash, Users, Bell, Pin, Search, Volume2, Video, Megaphone, MessagesSquare, Radio } from 'lucide-react'
 import api from '../api/client'
 import { useChat } from '../store/chat'
 import { useWs } from '../store/ws'
 import MessageList from '../components/chat/MessageList'
 import MessageInput from '../components/chat/MessageInput'
 import MemberList from '../components/chat/MemberList'
+import VoiceChannelPage from './VoiceChannelPage'
+import VideoChannelPage from './VideoChannelPage'
+import ForumPage from './ForumPage'
+import ThreadPanel from '../components/chat/ThreadPanel'
 import toast from 'react-hot-toast'
+
+function channelIcon(type: string, size = 18) {
+  const cls = `flex-shrink-0`
+  switch (type) {
+    case 'voice': return <Volume2 size={size} className={cls} />
+    case 'video': return <Video size={size} className={cls} />
+    case 'announcement': return <Megaphone size={size} className={cls} />
+    case 'forum': return <MessagesSquare size={size} className={cls} />
+    case 'stage': return <Radio size={size} className={cls} />
+    default: return <Hash size={size} className={cls} />
+  }
+}
 
 export default function ChannelPage() {
   const { serverId, channelId } = useParams()
   const { addMessages, addMessage, updateMessage, deleteMessage, addReaction, removeReaction, setTyping, clearTyping } = useChat()
   const { on, subscribeChannel } = useWs()
   const [showMembers, setShowMembers] = useState(true)
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
 
-  const { data: serverData } = useQuery({
+  // All hooks first — no conditional hooks
+  const { data: serverData, isLoading: serverLoading } = useQuery({
     queryKey: ['server', serverId],
     queryFn: () => api.get(`/servers/${serverId}`).then(r => r.data),
     enabled: !!serverId,
   })
-
-  const firstChannel = serverData?.channels?.find((c: any) => c.type === 'text')
-  if (!channelId && firstChannel) {
-    return <Navigate to={`/servers/${serverId}/channels/${firstChannel.id}`} replace />
-  }
-  if (!channelId && serverData && !firstChannel) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-fc-muted">
-        <Hash size={48} className="mb-3 opacity-30" />
-        <p>Aucun canal texte. Crées-en un via le menu du serveur.</p>
-      </div>
-    )
-  }
-
-  const currentChannel = serverData?.channels?.find((c: any) => c.id === channelId)
 
   const { data: messages = [] } = useQuery({
     queryKey: ['messages', channelId],
@@ -45,7 +48,7 @@ export default function ChannelPage() {
 
   useEffect(() => {
     if (messages.length > 0 && channelId) addMessages(channelId, messages)
-  }, [messages])
+  }, [messages, channelId])
 
   useEffect(() => {
     if (!channelId) return
@@ -79,7 +82,7 @@ export default function ChannelPage() {
   const sendMsg = useMutation({
     mutationFn: (content: string) =>
       api.post(`/servers/${serverId}/channels/${channelId}/messages`, { content }),
-    onError: () => toast.error('Échec de l\'envoi'),
+    onError: () => toast.error("Échec de l'envoi"),
   })
 
   const deleteMsg = useMutation({
@@ -95,15 +98,70 @@ export default function ChannelPage() {
     onError: () => toast.error('Modification impossible'),
   })
 
-  if (!channelId || !serverId) return null
+  if (!serverId) return null
 
+  // Loading state — FIX du bug page noire
+  if (!channelId && serverLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="w-8 h-8 border-2 border-fc-accent border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  const channels: any[] = serverData?.channels ?? []
+  const firstTextChannel = channels.find((c: any) => c.type === 'text' || c.type === 'announcement')
+
+  if (!channelId && firstTextChannel) {
+    return <Navigate to={`/servers/${serverId}/channels/${firstTextChannel.id}`} replace />
+  }
+
+  if (!channelId && serverData && !firstTextChannel) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-fc-muted">
+        <Hash size={48} className="mb-3 opacity-30" />
+        <p className="text-lg font-semibold text-white mb-1">Aucun canal texte</p>
+        <p className="text-sm">Créez-en un via le menu du serveur.</p>
+      </div>
+    )
+  }
+
+  if (!channelId) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="w-8 h-8 border-2 border-fc-accent border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  const currentChannel = channels.find((c: any) => c.id === channelId)
+
+  // Canal vocal
+  if (currentChannel?.type === 'voice' || currentChannel?.type === 'stage') {
+    return <VoiceChannelPage channel={currentChannel} serverId={serverId} />
+  }
+
+  // Canal vidéo
+  if (currentChannel?.type === 'video') {
+    return <VideoChannelPage channel={currentChannel} serverId={serverId} />
+  }
+
+  // Forum
+  if (currentChannel?.type === 'forum') {
+    return <ForumPage channel={currentChannel} serverId={serverId} channelId={channelId} />
+  }
+
+  // Canal texte / annonces
   return (
     <div className="flex h-full overflow-hidden">
       <div className="flex flex-col flex-1 min-w-0">
         {/* Header canal */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-fc-bg shadow-sm flex-shrink-0 min-h-[48px]">
-          <Hash size={18} className="text-fc-muted flex-shrink-0" />
+          <span className="text-fc-muted">{channelIcon(currentChannel?.type ?? 'text')}</span>
           <span className="font-semibold text-white">{currentChannel?.name ?? '...'}</span>
+          {currentChannel?.type === 'announcement' && (
+            <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full font-medium">Annonces</span>
+          )}
           {currentChannel?.topic && (
             <>
               <div className="w-px h-4 bg-fc-hover mx-1" />
@@ -141,19 +199,30 @@ export default function ChannelPage() {
               editMsg.mutate({ msgId: id, content: newContent.trim() })
             }
           }}
+          onOpenThread={(msgId) => setActiveThreadId(msgId)}
         />
 
         {/* Input */}
         <MessageInput
           channelId={channelId}
           serverId={serverId}
-          placeholder={`Envoyer un message dans #${currentChannel?.name ?? '...'}`}
+          placeholder={`Message dans #${currentChannel?.name ?? '...'}`}
           onSend={(content) => sendMsg.mutate(content)}
         />
       </div>
 
+      {/* Thread panel */}
+      {activeThreadId && (
+        <ThreadPanel
+          serverId={serverId}
+          channelId={channelId}
+          parentMessageId={activeThreadId}
+          onClose={() => setActiveThreadId(null)}
+        />
+      )}
+
       {/* Liste membres */}
-      {showMembers && <MemberList serverId={serverId} />}
+      {showMembers && !activeThreadId && <MemberList serverId={serverId} />}
     </div>
   )
 }

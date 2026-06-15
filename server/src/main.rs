@@ -137,6 +137,19 @@ fn protected_routes(state: AppState) -> Router<AppState> {
         .route("/dms/:user_id", post(handlers::friends::open_dm))
         .route("/dms/:dm_id/messages", get(handlers::friends::get_dm_messages))
         .route("/dms/:dm_id/messages", post(handlers::friends::send_dm))
+        // Threads
+        .route("/servers/:server_id/channels/:channel_id/threads", get(handlers::threads::list_threads))
+        .route("/servers/:server_id/channels/:channel_id/threads", post(handlers::threads::create_thread))
+        .route("/servers/:server_id/channels/:channel_id/threads/:thread_id/messages", get(handlers::threads::get_thread_messages))
+        .route("/servers/:server_id/channels/:channel_id/threads/:thread_id/messages", post(handlers::threads::send_thread_message))
+        .route("/servers/:server_id/channels/:channel_id/threads/:thread_id", patch(handlers::threads::archive_thread))
+        // Forum
+        .route("/servers/:server_id/channels/:channel_id/posts", get(handlers::forum::list_posts))
+        .route("/servers/:server_id/channels/:channel_id/posts", post(handlers::forum::create_post))
+        .route("/servers/:server_id/channels/:channel_id/posts/:post_id", get(handlers::forum::get_post))
+        .route("/servers/:server_id/channels/:channel_id/posts/:post_id", patch(handlers::forum::update_post))
+        .route("/servers/:server_id/channels/:channel_id/posts/:post_id", delete(handlers::forum::delete_post))
+        .route("/servers/:server_id/channels/:channel_id/posts/:post_id/replies", post(handlers::forum::reply_to_post))
         .route_layer(axum_middleware::from_fn_with_state(
             state,
             middleware::require_auth,
