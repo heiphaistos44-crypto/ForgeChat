@@ -406,7 +406,7 @@ pub async fn require_permission(
 
     if is_owner { return Ok(()); }
 
-    let perms = sqlx::query_scalar::<_, i64>(
+    let perms = sqlx::query_scalar::<_, Option<i64>>(
         "SELECT BIT_OR(r.permissions) FROM roles r
          JOIN member_roles mr ON mr.role_id = r.id
          WHERE mr.user_id=$1 AND mr.server_id=$2"
