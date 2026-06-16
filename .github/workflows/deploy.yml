@@ -20,7 +20,8 @@ jobs:
           ssh -i /tmp/dk -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} '
             set -e
             cd /opt/forgechat
-            git pull origin main
+            git fetch origin
+            git reset --hard origin/main
             cd client && npm ci && npm run build && cd ..
             docker compose up -d --build --remove-orphans
             echo "Deployed $(date)"
