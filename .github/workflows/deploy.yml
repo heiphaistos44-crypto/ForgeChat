@@ -1,3 +1,4 @@
+# Forgejo Actions CI/CD — ready
 name: Deploy ForgeChat
 
 on:
