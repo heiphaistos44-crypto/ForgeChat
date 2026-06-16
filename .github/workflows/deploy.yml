@@ -1,22 +1,15 @@
-# Forgejo Actions CI/CD — ready
+# Forgejo Actions CI/CD
 name: Deploy ForgeChat
 
 on:
   push:
-    branches:
-      - main
+    branches: [main, master]
   workflow_dispatch:
-
-    inputs:
-      deploy:
-        description: "Deploy to VPS"
-        required: false
 
 jobs:
   deploy:
     name: Build & Deploy
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,17 +27,15 @@ jobs:
           npm ci
           npm run build
 
+      - name: Setup SSH key
+        run: |
+          echo "${{ secrets.VPS_SSH_KEY }}" | base64 --decode --ignore-garbage > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+
       - name: Deploy to VPS
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            set -e
-            cd /opt/forgechat
-            git pull origin main
-            cd client && npm ci && npm run build && cd ..
-            docker compose up -d --build --remove-orphans
-            docker compose ps
-            echo "✅ Déployé à $(date)"
+        run: |
+          ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} 'set -e; cd /opt/forgechat; git pull origin main; cd client && npm ci && npm run build && cd ..; docker compose up -d --build --remove-orphans; docker compose ps'
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/deploy_key
