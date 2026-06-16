@@ -118,18 +118,21 @@ pub async fn send_message(
         return Err(AppError::BadRequest("Contenu vide".into()));
     }
 
-    let content = body.content.as_ref().map(|c| {
+    let content_str = body.content.as_ref().map(|c| {
         if c.len() > 4000 { &c[..4000] } else { c }
     });
 
+    let mention_everyone = content_str.map(|c| c.contains("@everyone") || c.contains("@here")).unwrap_or(false);
+
     let msg = sqlx::query(
-        "INSERT INTO messages (channel_id, user_id, content, reply_to)
-         VALUES ($1, $2, $3, $4) RETURNING *"
+        "INSERT INTO messages (channel_id, user_id, content, reply_to, mention_everyone)
+         VALUES ($1, $2, $3, $4, $5) RETURNING *"
     )
     .bind(channel_id)
     .bind(claims.sub)
-    .bind(content)
+    .bind(content_str)
     .bind(body.reply_to)
+    .bind(mention_everyone)
     .fetch_one(&state.db)
     .await?;
 

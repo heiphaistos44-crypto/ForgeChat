@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useWs } from '../../store/ws'
 import api from '../../api/client'
 import toast from 'react-hot-toast'
+import EmojiPicker from './EmojiPicker'
 
 export interface ReplyTarget {
   id: string
@@ -34,6 +35,7 @@ export default function MessageInput({ channelId, serverId, placeholder, onSend,
   const [mentionQuery, setMentionQuery] = useState('')
   const [mentionIndex, setMentionIndex] = useState(0)
   const [showMentions, setShowMentions] = useState(false)
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [cursorPos, setCursorPos] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { send } = useWs()
@@ -227,10 +229,26 @@ export default function MessageInput({ channelId, serverId, placeholder, onSend,
           style={{ lineHeight: '1.5', minHeight: '24px', maxHeight: '144px' }}
         />
 
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <button className="p-1.5 text-fc-muted hover:text-white rounded transition" title="Emoji">
-            <SmilePlus size={20} />
-          </button>
+        <div className="flex items-center gap-1 flex-shrink-0 relative">
+          <div className="relative">
+            <button
+              onClick={() => setShowEmojiPicker(p => !p)}
+              className={`p-1.5 rounded transition ${showEmojiPicker ? 'text-fc-accent' : 'text-fc-muted hover:text-white'}`}
+              title="Emoji"
+            >
+              <SmilePlus size={20} />
+            </button>
+            {showEmojiPicker && (
+              <EmojiPicker
+                onPick={(emoji) => {
+                  const pos = textareaRef.current?.selectionStart ?? content.length
+                  setContent(c => c.slice(0, pos) + emoji + c.slice(pos))
+                  setTimeout(() => textareaRef.current?.focus(), 0)
+                }}
+                onClose={() => setShowEmojiPicker(false)}
+              />
+            )}
+          </div>
           <button
             onClick={submit}
             disabled={!content.trim() && files.length === 0}

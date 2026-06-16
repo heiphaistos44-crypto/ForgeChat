@@ -55,7 +55,7 @@ function inlineMarkdown(text: string): React.ReactNode {
 
 function tokenize(text: string): React.ReactNode[] {
   // Regex pour détecter les tokens inline
-  const pattern = /(`[^`]+`|\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|__(.+?)__|_(.+?)_|~~(.+?)~~|\|\|(.+?)\|\||<@[^>]+>|https?:\/\/\S+)/g
+  const pattern = /(`[^`]+`|\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|__(.+?)__|_(.+?)_|~~(.+?)~~|\|\|(.+?)\|\||<@[^>]+>|@everyone|@here|https?:\/\/\S+)/g
   const result: React.ReactNode[] = []
   let lastIndex = 0
   let match: RegExpExecArray | null
@@ -83,6 +83,10 @@ function tokenize(text: string): React.ReactNode[] {
     } else if (full.startsWith('||') && full.endsWith('||')) {
       result.push(
         <SpoilerText key={match.index} text={full.slice(2, -2)} />
+      )
+    } else if (full === '@everyone' || full === '@here') {
+      result.push(
+        <span key={match.index} className="mention mention-everyone">{full}</span>
       )
     } else if (full.startsWith('<@')) {
       result.push(<span key={match.index} className="mention">{full}</span>)

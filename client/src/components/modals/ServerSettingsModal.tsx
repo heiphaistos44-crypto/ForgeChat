@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { X, Trash2 } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { X, Trash2, Upload } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import api from '../../api/client'
@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 interface Server {
   id: string
   name: string
+  icon?: string | null
   description?: string
   is_public: boolean
   member_count: number
@@ -24,6 +25,8 @@ export default function ServerSettingsModal({ server, onClose }: Props) {
   const [description, setDescription] = useState(server.description ?? '')
   const [isPublic, setIsPublic] = useState(server.is_public)
   const [deleteConfirm, setDeleteConfirm] = useState('')
+  const [iconPreview, setIconPreview] = useState<string | null>(server.icon ?? null)
+  const iconInputRef = useRef<HTMLInputElement>(null)
   const qc = useQueryClient()
   const nav = useNavigate()
 
@@ -35,6 +38,24 @@ export default function ServerSettingsModal({ server, onClose }: Props) {
       toast.success('Serveur mis à jour')
     },
     onError: (e: any) => toast.error(e.response?.data?.error ?? 'Erreur'),
+  })
+
+  const uploadIcon = useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData()
+      form.append('icon', file)
+      const { data } = await api.post(`/servers/${server.id}/icon`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      return data
+    },
+    onSuccess: (data) => {
+      setIconPreview(data.icon)
+      qc.invalidateQueries({ queryKey: ['server', server.id] })
+      qc.invalidateQueries({ queryKey: ['servers'] })
+      toast.success('Icône mise à jour')
+    },
+    onError: (e: any) => toast.error(e.response?.data?.error ?? 'Erreur upload'),
   })
 
   const deleteServer = useMutation({
@@ -95,6 +116,44 @@ export default function ServerSettingsModal({ server, onClose }: Props) {
 
             {tab === 'general' && (
               <div className="space-y-6">
+                {/* Icône serveur */}
+                <div>
+                  <label className="block text-xs font-semibold text-fc-muted uppercase tracking-wide mb-3">
+                    Icône du serveur
+                  </label>
+                  <div className="flex items-center gap-4">
+                    <div className="w-20 h-20 rounded-full bg-fc-accent flex items-center justify-center font-bold text-2xl text-white overflow-hidden flex-shrink-0">
+                      {iconPreview
+                        ? <img src={iconPreview} alt="" className="w-full h-full object-cover" />
+                        : server.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <input
+                        ref={iconInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={e => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          uploadIcon.mutate(file)
+                          const url = URL.createObjectURL(file)
+                          setIconPreview(url)
+                        }}
+                      />
+                      <button
+                        onClick={() => iconInputRef.current?.click()}
+                        disabled={uploadIcon.isPending}
+                        className="flex items-center gap-2 px-4 py-2 bg-fc-accent hover:bg-indigo-500 text-white rounded text-sm font-medium transition disabled:opacity-50"
+                      >
+                        <Upload size={14} />
+                        {uploadIcon.isPending ? 'Upload...' : 'Changer l\'icône'}
+                      </button>
+                      <p className="text-xs text-fc-muted mt-1">PNG, JPG, GIF, WEBP · max 8 MB</p>
+                    </div>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-fc-muted uppercase tracking-wide mb-2">
                     Nom du serveur

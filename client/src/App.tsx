@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-route
 import { useAuth } from './store/auth'
 import { useWs } from './store/ws'
 import { usePresence } from './store/presence'
+import { useUnread } from './store/unread'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import InvitePage from './pages/InvitePage'
@@ -27,6 +28,7 @@ function AppInner() {
   const { fetchMe, user } = useAuth()
   const { connect, disconnect, on } = useWs()
   const setStatus = usePresence(s => s.setStatus)
+  const { increment: incrUnread, fetchAll: fetchUnread } = useUnread()
   const nav = useNavigate()
   const [showQuickSwitcher, setShowQuickSwitcher] = React.useState(false)
 
@@ -36,6 +38,7 @@ function AppInner() {
     if (!user) return
     const token = localStorage.getItem('access_token')
     if (token) connect(token)
+    fetchUnread()
     return () => disconnect()
   }, [user?.id])
 
@@ -43,6 +46,19 @@ function AppInner() {
     const off = on('PRESENCE_UPDATE', (d: any) => setStatus(d.user_id, d.status))
     return off
   }, [])
+
+  // Incrémenter non-lus pour les messages reçus sur des canaux non actifs
+  useEffect(() => {
+    const off = on('MESSAGE_CREATE', (d: any) => {
+      const msg = d.message
+      if (!msg?.channel_id || msg?.author_id === user?.id) return
+      const currentPath = window.location.pathname
+      if (!currentPath.includes(msg.channel_id)) {
+        incrUnread(msg.channel_id)
+      }
+    })
+    return off
+  }, [user?.id])
 
   // Raccourcis clavier globaux
   useEffect(() => {

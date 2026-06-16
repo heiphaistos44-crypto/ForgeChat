@@ -7,6 +7,7 @@ import {
 import { useState } from 'react'
 import api from '../../api/client'
 import { usePresence } from '../../store/presence'
+import { useUnread } from '../../store/unread'
 import CreateChannelModal from '../modals/CreateChannelModal'
 import InviteModal from '../modals/InviteModal'
 import ServerSettingsModal from '../modals/ServerSettingsModal'
@@ -36,6 +37,7 @@ export default function ChannelSidebar() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const getStatus = usePresence(s => s.getStatus)
+  const unreadCounts = useUnread(s => s.counts)
 
   const { data } = useQuery({
     queryKey: ['server', serverId],
@@ -169,17 +171,18 @@ export default function ChannelSidebar() {
                     className={`flex items-center gap-1.5 w-full px-2 py-1.5 rounded transition text-left group
                       ${channelId === ch.id
                         ? 'bg-fc-hover text-white'
-                        : 'text-fc-muted hover:bg-fc-hover/50 hover:text-fc-text'}`}
+                        : unreadCounts[ch.id] > 0
+                          ? 'text-white font-semibold hover:bg-fc-hover/50'
+                          : 'text-fc-muted hover:bg-fc-hover/50 hover:text-fc-text'}`}
                   >
-                    <span className={channelId === ch.id ? 'text-white' : 'text-fc-muted'}>
+                    <span className={channelId === ch.id ? 'text-white' : unreadCounts[ch.id] > 0 ? 'text-white' : 'text-fc-muted'}>
                       <ChannelIcon type={ch.type} size={16} />
                     </span>
                     <span className="text-sm truncate flex-1">{ch.name}</span>
-                    {ch.type === 'announcement' && (
-                      <span className="text-xs text-yellow-400 opacity-60 group-hover:opacity-100">ann.</span>
-                    )}
-                    {ch.type === 'forum' && (
-                      <span className="text-xs text-fc-muted opacity-0 group-hover:opacity-100">forum</span>
+                    {unreadCounts[ch.id] > 0 && channelId !== ch.id && (
+                      <span className="flex-shrink-0 min-w-[18px] h-[18px] bg-fc-red text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
+                        {unreadCounts[ch.id] > 99 ? '99+' : unreadCounts[ch.id]}
+                      </span>
                     )}
                   </button>
                 ))}

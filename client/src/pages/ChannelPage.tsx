@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useParams, Navigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Hash, Users, Bell, Pin, Search, Volume2, Video, Megaphone, MessagesSquare, Radio, Loader2 } from 'lucide-react'
@@ -7,6 +7,7 @@ import { useChat } from '../store/chat'
 import { useWs } from '../store/ws'
 import MessageList from '../components/chat/MessageList'
 import MessageInput, { ReplyTarget } from '../components/chat/MessageInput'
+import { useUnread } from '../store/unread'
 import MemberList from '../components/chat/MemberList'
 import PinnedPanel from '../components/chat/PinnedPanel'
 import SearchPanel from '../components/chat/SearchPanel'
@@ -31,11 +32,13 @@ export default function ChannelPage() {
   const { serverId, channelId } = useParams()
   const { addMessages, addMessage, updateMessage, deleteMessage, addReaction, removeReaction, setTyping, clearTyping } = useChat()
   const { on, subscribeChannel } = useWs()
+  const markRead = useUnread(s => s.markRead)
   const [showMembers, setShowMembers] = useState(true)
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [showPinned, setShowPinned] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
   const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null)
+  const [hasMore, setHasMore] = useState(true)
 
   // All hooks first — no conditional hooks
   const { data: serverData, isLoading: serverLoading } = useQuery({
@@ -53,6 +56,14 @@ export default function ChannelPage() {
   useEffect(() => {
     if (messages.length > 0 && channelId) addMessages(channelId, messages)
   }, [messages, channelId])
+
+  // Marquer comme lu + reset load-more quand on ouvre un nouveau canal
+  useEffect(() => {
+    if (channelId) {
+      markRead(channelId)
+      setHasMore(true)
+    }
+  }, [channelId])
 
   useEffect(() => {
     if (!channelId) return
@@ -101,6 +112,23 @@ export default function ChannelPage() {
       api.patch(`/servers/${serverId}/channels/${channelId}/messages/${msgId}`, { content }),
     onError: () => toast.error('Modification impossible'),
   })
+
+  const loadMore = useCallback(async (): Promise<boolean> => {
+    if (!channelId || !serverId || !hasMore) return false
+    const store = useChat.getState()
+    const msgs = store.messagesByChannel[channelId] ?? []
+    if (msgs.length === 0) return false
+    const oldestId = msgs[0].id
+    try {
+      const { data } = await api.get(
+        `/servers/${serverId}/channels/${channelId}/messages?before=${oldestId}&limit=50`
+      )
+      if (data.length === 0) { setHasMore(false); return false }
+      addMessages(channelId, data, true)
+      if (data.length < 50) setHasMore(false)
+      return true
+    } catch { return false }
+  }, [channelId, serverId, hasMore])
 
   if (!serverId) return null
 
@@ -211,6 +239,7 @@ export default function ChannelPage() {
               .catch(() => toast.error('Épinglage impossible'))
           }
           onReply={(msg) => setReplyTo({ id: msg.id, author_username: msg.author_username, content: msg.content ?? null })}
+          onLoadMore={loadMore}
         />
 
         {/* Input */}

@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Multipart, Path, State},
     Extension, Json,
 };
 use rand::Rng;
@@ -359,6 +359,44 @@ pub async fn ban_member(
     .await?;
 
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+pub async fn upload_server_icon(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(server_id): Path<Uuid>,
+    mut multipart: Multipart,
+) -> Result<Json<serde_json::Value>> {
+    require_owner(&state, claims.sub, server_id).await?;
+
+    while let Some(field) = multipart.next_field().await.map_err(|e| AppError::BadRequest(e.to_string()))? {
+        let ct = field.content_type().unwrap_or("image/jpeg").to_string();
+        if !ct.starts_with("image/") {
+            return Err(AppError::BadRequest("Type de fichier non supporté".into()));
+        }
+        let ext = match ct.as_str() {
+            "image/png" => "png", "image/gif" => "gif", "image/webp" => "webp", _ => "jpg",
+        };
+        let data = field.bytes().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
+        if data.len() > 8 * 1024 * 1024 {
+            return Err(AppError::BadRequest("Fichier trop grand (max 8 MB)".into()));
+        }
+        let filename = format!("server-icons/{}.{}", Uuid::new_v4(), ext);
+        let path = std::path::Path::new(&state.config.upload_dir).join(&filename);
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| AppError::Internal(e.into()))?;
+        }
+        tokio::fs::write(&path, &data).await.map_err(|e| AppError::Internal(e.into()))?;
+        let icon_url = format!("/uploads/{}", filename);
+        sqlx::query("UPDATE servers SET icon=$2 WHERE id=$1")
+            .bind(server_id)
+            .bind(&icon_url)
+            .execute(&state.db)
+            .await?;
+        return Ok(Json(serde_json::json!({ "icon": icon_url })));
+    }
+
+    Err(AppError::BadRequest("Champ image manquant".into()))
 }
 
 // --- Helpers ---

@@ -10,3 +10,4 @@ pub mod websocket;
 pub mod friends;
 pub mod threads;
 pub mod forum;
+pub mod reads;

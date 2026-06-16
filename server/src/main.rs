@@ -102,6 +102,7 @@ fn protected_routes(state: AppState) -> Router<AppState> {
         .route("/servers/:id/members", get(handlers::servers::get_members))
         .route("/servers/:server_id/members/:user_id/kick", post(handlers::servers::kick_member))
         .route("/servers/:server_id/members/:user_id/ban", post(handlers::servers::ban_member))
+        .route("/servers/:server_id/icon", post(handlers::servers::upload_server_icon))
         // Channels
         .route("/servers/:id/channels", get(handlers::channels::get_channels))
         .route("/servers/:id/channels", post(handlers::channels::create_channel))
@@ -142,6 +143,9 @@ fn protected_routes(state: AppState) -> Router<AppState> {
         .route("/dms/:user_id", post(handlers::friends::open_dm))
         .route("/dms/:dm_id/messages", get(handlers::friends::get_dm_messages))
         .route("/dms/:dm_id/messages", post(handlers::friends::send_dm))
+        // Unread
+        .route("/unread", get(handlers::reads::get_unread_counts))
+        .route("/channels/:channel_id/read", post(handlers::reads::mark_channel_read))
         // Threads
         .route("/servers/:server_id/channels/:channel_id/threads", get(handlers::threads::list_threads))
         .route("/servers/:server_id/channels/:channel_id/threads", post(handlers::threads::create_thread))
