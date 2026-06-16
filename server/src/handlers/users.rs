@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, State, Multipart},
     Extension, Json,
 };
 use uuid::Uuid;
@@ -77,6 +77,74 @@ pub async fn update_me(
     state.broadcast_to_user(claims.sub, event.to_string()).await;
 
     Ok(Json(user.into()))
+}
+
+pub async fn upload_avatar(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    mut multipart: Multipart,
+) -> Result<Json<UserPublic>> {
+    while let Some(field) = multipart.next_field().await.map_err(|e| AppError::BadRequest(e.to_string()))? {
+        let name = field.name().unwrap_or("").to_string();
+        if name != "avatar" { continue; }
+
+        let content_type = field.content_type()
+            .unwrap_or("image/jpeg")
+            .to_string();
+
+        if !content_type.starts_with("image/") {
+            return Err(AppError::BadRequest("Type de fichier non supporté".into()));
+        }
+
+        let ext = match content_type.as_str() {
+            "image/png" => "png",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            _ => "jpg",
+        };
+
+        let data = field.bytes().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+        if data.len() > 8 * 1024 * 1024 {
+            return Err(AppError::BadRequest("Fichier trop grand (max 8 MB)".into()));
+        }
+
+        let filename = format!("avatars/{}.{}", Uuid::new_v4(), ext);
+        let path = std::path::Path::new(&state.config.upload_dir).join(&filename);
+
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await
+                .map_err(|e| AppError::Internal(e.into()))?;
+        }
+
+        tokio::fs::write(&path, &data).await
+            .map_err(|e| AppError::Internal(e.into()))?;
+
+        let avatar_url = format!("/uploads/{}", filename);
+
+        let user = sqlx::query_as::<_, crate::models::user::User>(
+            "UPDATE users SET avatar=$2, updated_at=NOW() WHERE id=$1 RETURNING *"
+        )
+        .bind(claims.sub)
+        .bind(&avatar_url)
+        .fetch_one(&state.db)
+        .await?;
+
+        return Ok(Json(user.into()));
+    }
+
+    Err(AppError::BadRequest("Champ 'avatar' manquant".into()))
+}
+
+pub async fn delete_account(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<serde_json::Value>> {
+    sqlx::query("DELETE FROM users WHERE id=$1")
+        .bind(claims.sub)
+        .execute(&state.db)
+        .await?;
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 pub async fn search_users(

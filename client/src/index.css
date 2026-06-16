@@ -17,3 +17,43 @@ body {
 ::-webkit-scrollbar-thumb { background: #202225; border-radius: 4px; }
 
 .mention { color: #5865f2; background: rgba(88,101,242,0.15); border-radius: 3px; padding: 0 2px; }
+
+/* Composants Settings réutilisables */
+.fc-input {
+  @apply w-full px-3 py-2 bg-fc-input rounded-lg text-white outline-none focus:ring-2 focus:ring-fc-accent text-sm;
+}
+.fc-label {
+  @apply block text-xs font-semibold text-fc-muted uppercase tracking-wide;
+}
+.btn-primary {
+  @apply px-4 py-2 bg-fc-accent hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition disabled:opacity-50;
+}
+.btn-secondary {
+  @apply px-4 py-2 bg-fc-hover hover:bg-fc-hover/80 text-fc-text rounded-lg text-sm transition;
+}
+
+/* Markdown messages */
+.fc-markdown strong { font-weight: 700; color: #fff; }
+.fc-markdown em { font-style: italic; }
+.fc-markdown del { text-decoration: line-through; }
+.fc-markdown code { background: #202225; padding: 1px 5px; border-radius: 4px; font-family: monospace; font-size: 0.85em; color: #e3e5e8; }
+.fc-markdown pre { background: #202225; border: 1px solid #40444b; border-radius: 6px; padding: 10px 14px; margin: 6px 0; overflow-x: auto; }
+.fc-markdown pre code { background: none; padding: 0; font-size: 0.9em; }
+.fc-markdown blockquote { border-left: 3px solid #4f545c; padding-left: 10px; margin: 4px 0; color: #a3a6aa; }
+.fc-markdown a { color: #00aff4; text-decoration: underline; }
+.fc-markdown h1,.fc-markdown h2,.fc-markdown h3 { font-weight: 700; color: #fff; margin: 4px 0; }
+
+/* Mode compact */
+.fc-compact .msg-avatar { display: none; }
+.fc-compact .msg-row { padding-top: 1px; padding-bottom: 1px; }
+
+/* Thème clair */
+[data-theme="light"] body { background: #f2f3f5; color: #060607; }
+[data-theme="light"] .bg-fc-bg { background-color: #f2f3f5 !important; }
+[data-theme="light"] .bg-fc-channel { background-color: #ebedef !important; }
+[data-theme="light"] .text-white { color: #060607 !important; }
+
+/* AMOLED */
+[data-theme="darker"] body { background: #000000; }
+[data-theme="darker"] .bg-fc-bg { background-color: #000 !important; }
+[data-theme="darker"] .bg-fc-channel { background-color: #0a0a0a !important; }

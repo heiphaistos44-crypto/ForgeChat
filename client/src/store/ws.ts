@@ -17,8 +17,11 @@ export const useWs = create<WsState>((set, get) => ({
   handlers: new Map(),
 
   connect: (token: string) => {
-    const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-    const ws = new WebSocket(`${protocol}://${location.host}/ws?token=${token}`)
+    const isTauri = '__TAURI_INTERNALS__' in window
+    const wsUrl = isTauri
+      ? `wss://forgechat.heiphaistos.org/ws?token=${token}`
+      : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?token=${token}`
+    const ws = new WebSocket(wsUrl)
 
     ws.onmessage = (e) => {
       try {

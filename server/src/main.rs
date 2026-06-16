@@ -83,9 +83,12 @@ fn protected_routes(state: AppState) -> Router<AppState> {
     Router::new()
         // Auth
         .route("/auth/logout", post(handlers::auth::logout))
+        .route("/auth/change-password", post(handlers::auth::change_password))
         // Users
         .route("/users/me", get(handlers::users::get_me))
         .route("/users/me", patch(handlers::users::update_me))
+        .route("/users/me", delete(handlers::users::delete_account))
+        .route("/users/me/avatar", post(handlers::users::upload_avatar))
         .route("/users/:id", get(handlers::users::get_user))
         .route("/users/search", get(handlers::users::search_users))
         // Servers

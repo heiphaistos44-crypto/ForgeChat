@@ -1,6 +1,10 @@
 import axios from 'axios'
 
-const api = axios.create({ baseURL: '/api' })
+const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+export const SERVER_URL = isTauri ? 'https://forgechat.heiphaistos.org' : ''
+const baseURL = isTauri ? 'https://forgechat.heiphaistos.org/api' : '/api'
+
+const api = axios.create({ baseURL })
 
 api.interceptors.request.use(cfg => {
   const token = localStorage.getItem('access_token')
@@ -15,7 +19,7 @@ api.interceptors.response.use(
       const refresh = localStorage.getItem('refresh_token')
       if (refresh) {
         try {
-          const res = await axios.post('/api/auth/refresh', { refresh_token: refresh })
+          const res = await axios.post(`${baseURL}/auth/refresh`, { refresh_token: refresh })
           localStorage.setItem('access_token', res.data.access_token)
           err.config.headers.Authorization = `Bearer ${res.data.access_token}`
           return api(err.config)

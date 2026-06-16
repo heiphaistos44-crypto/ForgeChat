@@ -1,0 +1,24 @@
+{
+  "name": "ForgeChat",
+  "short_name": "ForgeChat",
+  "description": "Messagerie instantanée self-hosted",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#1a1b1e",
+  "theme_color": "#5865f2",
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "Messages", "url": "/friends", "description": "Messages directs" },
+    { "name": "Amis", "url": "/friends", "description": "Liste d'amis" }
+  ],
+  "categories": ["social", "communication"]
+}

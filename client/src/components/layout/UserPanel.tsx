@@ -1,9 +1,7 @@
-import { Mic, MicOff, Headphones, Settings, LogOut } from 'lucide-react'
+import { Mic, MicOff, Headphones, Settings } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../store/auth'
-import UserProfileModal from '../modals/UserProfileModal'
-import toast from 'react-hot-toast'
 
 const STATUS_COLORS: Record<string, string> = {
   online: 'bg-fc-green',
@@ -14,17 +12,10 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 export default function UserPanel() {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const nav = useNavigate()
   const [muted, setMuted] = useState(false)
   const [deafened, setDeafened] = useState(false)
-  const [showProfile, setShowProfile] = useState(false)
-
-  const handleLogout = async () => {
-    await logout()
-    nav('/login')
-    toast.success('Déconnecté')
-  }
 
   if (!user) return null
 
@@ -33,9 +24,9 @@ export default function UserPanel() {
       <div className="flex items-center gap-2 px-2 py-2 bg-fc-bg/50 border-t border-fc-bg flex-shrink-0">
         {/* Avatar + nom */}
         <button
-          onClick={() => setShowProfile(true)}
+          onClick={() => nav('/settings')}
           className="flex items-center gap-2 flex-1 min-w-0 rounded px-1 py-0.5 hover:bg-fc-hover transition text-left"
-          title="Modifier le profil"
+          title="Paramètres (Ctrl+,)"
         >
           <div className="relative flex-shrink-0">
             <div className="w-8 h-8 rounded-full bg-fc-accent flex items-center justify-center font-bold text-sm text-white">
@@ -70,16 +61,15 @@ export default function UserPanel() {
             <Headphones size={16} />
           </button>
           <button
-            onClick={handleLogout}
-            className="p-1.5 rounded hover:bg-fc-hover text-fc-muted hover:text-fc-red transition"
-            title="Déconnexion"
+            onClick={() => nav('/settings')}
+            className="p-1.5 rounded hover:bg-fc-hover text-fc-muted hover:text-white transition"
+            title="Paramètres (Ctrl+,)"
           >
-            <LogOut size={16} />
+            <Settings size={16} />
           </button>
         </div>
       </div>
 
-      {showProfile && <UserProfileModal onClose={() => setShowProfile(false)} />}
     </>
   )
 }

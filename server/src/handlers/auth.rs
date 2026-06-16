@@ -124,6 +124,43 @@ pub async fn refresh(
     Ok(Json(serde_json::json!({ "access_token": access_token })))
 }
 
+pub async fn change_password(
+    State(state): State<AppState>,
+    axum::Extension(claims): axum::Extension<crate::middleware::auth::Claims>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>> {
+    let old_pw = body["old_password"].as_str()
+        .ok_or_else(|| AppError::BadRequest("old_password requis".into()))?;
+    let new_pw = body["new_password"].as_str()
+        .ok_or_else(|| AppError::BadRequest("new_password requis".into()))?;
+
+    if new_pw.len() < 8 {
+        return Err(AppError::BadRequest("Mot de passe min 8 chars".into()));
+    }
+
+    let pw_hash = sqlx::query_scalar::<_, String>(
+        "SELECT password_hash FROM users WHERE id=$1"
+    )
+    .bind(claims.sub)
+    .fetch_one(&state.db)
+    .await?;
+
+    if !verify(old_pw, &pw_hash).unwrap_or(false) {
+        return Err(AppError::BadRequest("Mot de passe actuel incorrect".into()));
+    }
+
+    let new_hash = hash(new_pw, DEFAULT_COST)
+        .map_err(|e| AppError::Internal(e.into()))?;
+
+    sqlx::query("UPDATE users SET password_hash=$2, updated_at=NOW() WHERE id=$1")
+        .bind(claims.sub)
+        .bind(&new_hash)
+        .execute(&state.db)
+        .await?;
+
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
 pub async fn logout(
     State(state): State<AppState>,
     axum::Extension(claims): axum::Extension<crate::middleware::auth::Claims>,

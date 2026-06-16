@@ -1,15 +1,17 @@
 import { useEffect } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { useAuth } from './store/auth'
 import { useWs } from './store/ws'
 import { usePresence } from './store/presence'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import InvitePage from './pages/InvitePage'
+import SettingsPage from './pages/SettingsPage'
 import MainLayout from './components/layout/MainLayout'
 import ChannelPage from './pages/ChannelPage'
 import DMPage from './pages/DMPage'
 import FriendsPage from './pages/FriendsPage'
+import QuickSwitcher from './components/QuickSwitcher'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -21,10 +23,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return user ? <>{children}</> : <Navigate to="/login" replace />
 }
 
-export default function App() {
+function AppInner() {
   const { fetchMe, user } = useAuth()
   const { connect, disconnect, on } = useWs()
   const setStatus = usePresence(s => s.setStatus)
+  const nav = useNavigate()
+  const [showQuickSwitcher, setShowQuickSwitcher] = React.useState(false)
 
   useEffect(() => { fetchMe() }, [])
 
@@ -35,20 +39,35 @@ export default function App() {
     return () => disconnect()
   }, [user?.id])
 
-  // Écouter les mises à jour de présence globalement
   useEffect(() => {
-    const off = on('PRESENCE_UPDATE', (d: any) => {
-      setStatus(d.user_id, d.status)
-    })
+    const off = on('PRESENCE_UPDATE', (d: any) => setStatus(d.user_id, d.status))
     return off
   }, [])
 
+  // Raccourcis clavier globaux
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault()
+        setShowQuickSwitcher(q => !q)
+      }
+      if (e.key === 'Escape') setShowQuickSwitcher(false)
+      if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+        e.preventDefault()
+        nav('/settings')
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [nav])
+
   return (
-    <BrowserRouter>
+    <>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/invite/:code" element={<InvitePage />} />
+        <Route path="/settings" element={<AuthGuard><SettingsPage /></AuthGuard>} />
         <Route path="/" element={<AuthGuard><MainLayout /></AuthGuard>}>
           <Route index element={<FriendsPage />} />
           <Route path="friends" element={<FriendsPage />} />
@@ -57,6 +76,18 @@ export default function App() {
           <Route path="servers/:serverId/channels/:channelId" element={<ChannelPage />} />
         </Route>
       </Routes>
+      {showQuickSwitcher && <QuickSwitcher onClose={() => setShowQuickSwitcher(false)} />}
+    </>
+  )
+}
+
+import React from 'react'
+
+export default function App() {
+
+  return (
+    <BrowserRouter>
+      <AppInner />
     </BrowserRouter>
   )
 }

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, KeyboardEvent } from 'react'
 import { format, isToday, isYesterday } from 'date-fns'
 import { fr } from 'date-fns/locale'
-import { Pencil, Trash2, SmilePlus, MessagesSquare, Check, X, Pin } from 'lucide-react'
+import { Pencil, Trash2, SmilePlus, MessagesSquare, Check, X, Pin, CornerUpLeft } from 'lucide-react'
 import { useAuth } from '../../store/auth'
 import { useChat } from '../../store/chat'
+import { renderMarkdown } from '../../utils/markdown'
 
 interface Props {
   channelId: string
@@ -13,6 +14,7 @@ interface Props {
   onOpenThread?: (msgId: string) => void
   onAddReaction?: (msgId: string, emoji: string) => void
   onPinMessage?: (msgId: string) => void
+  onReply?: (msg: any) => void
 }
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🎉', '🔥', '👀']
@@ -37,6 +39,7 @@ export default function MessageList({
   onOpenThread,
   onAddReaction,
   onPinMessage,
+  onReply,
 }: Props) {
   const { user } = useAuth()
   const messages = useChat(s => s.messagesByChannel[channelId] ?? [])
@@ -163,13 +166,21 @@ export default function MessageList({
                 </div>
               ) : (
                 <>
+                  {/* Message de reply référencé */}
+                  {msg.reply_to && (
+                    <div className="flex items-center gap-1.5 mb-1 pl-2 border-l-2 border-fc-muted/40 text-xs text-fc-muted">
+                      <CornerUpLeft size={10} />
+                      <span className="italic truncate max-w-xs">Réponse à un message</span>
+                    </div>
+                  )}
+
                   {msg.content && (
-                    <p className="text-fc-text text-sm break-words leading-relaxed">
-                      {msg.content}
+                    <div className="text-fc-text text-sm break-words leading-relaxed">
+                      {renderMarkdown(msg.content)}
                       {msg.edited_at && (
                         <span className="text-xs text-fc-muted ml-1.5">(modifié)</span>
                       )}
-                    </p>
+                    </div>
                   )}
 
                   {/* Pièces jointes */}
@@ -251,6 +262,16 @@ export default function MessageList({
                     </div>
                   )}
                 </div>
+
+                {onReply && (
+                  <button
+                    onClick={() => onReply(msg)}
+                    className="p-1.5 text-fc-muted hover:text-white rounded hover:bg-fc-hover transition"
+                    title="Répondre"
+                  >
+                    <CornerUpLeft size={14} />
+                  </button>
+                )}
 
                 {onOpenThread && (
                   <button

@@ -1,0 +1,13 @@
+{
+  "name": "forgechat-desktop",
+  "version": "1.3.0",
+  "private": true,
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:all": "cd ../client && npm run build && cd ../desktop && tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}
