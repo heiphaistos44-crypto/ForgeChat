@@ -1,6 +1,15 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 
+export interface Attachment {
+  id: string
+  url: string
+  filename: string
+  content_type: string
+  size: number
+  expires_at?: string | null
+}
+
 interface Message {
   id: string
   channel_id: string
@@ -16,16 +25,9 @@ interface Message {
   author_username: string
   author_discriminator: string
   author_avatar: string | null
+  author_is_bot: boolean
   attachments: Attachment[]
   reactions: ReactionCount[]
-}
-
-interface Attachment {
-  id: string
-  url: string
-  filename: string
-  content_type: string
-  size: number
 }
 
 interface ReactionCount {
@@ -40,6 +42,7 @@ interface ChatState {
   addMessages: (channelId: string, messages: Message[], prepend?: boolean) => void
   addMessage: (msg: Message) => void
   updateMessage: (channelId: string, msgId: string, patch: Partial<Message>) => void
+  mergeAttachments: (channelId: string, msgId: string, attachments: Attachment[]) => void
   deleteMessage: (channelId: string, msgId: string) => void
   setTyping: (channelId: string, userId: string) => void
   clearTyping: (channelId: string, userId: string) => void
@@ -73,6 +76,15 @@ export const useChat = create<ChatState>()(
       if (!msgs) return
       const idx = msgs.findIndex(m => m.id === msgId)
       if (idx !== -1) Object.assign(msgs[idx], patch)
+    }),
+
+    mergeAttachments: (channelId, msgId, attachments) => set(s => {
+      const msgs = s.messagesByChannel[channelId]
+      if (!msgs) return
+      const msg = msgs.find(m => m.id === msgId)
+      if (!msg) return
+      const existingIds = new Set(msg.attachments.map(a => a.id))
+      msg.attachments = [...msg.attachments, ...attachments.filter(a => !existingIds.has(a.id))]
     }),
 
     deleteMessage: (channelId, msgId) => set(s => {

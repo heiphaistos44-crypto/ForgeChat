@@ -1,5 +1,5 @@
-import { useRef, useState, useEffect } from 'react'
-import { Plus, SmilePlus, Send, X, CornerUpLeft } from 'lucide-react'
+import { useRef, useState, useEffect, useCallback } from 'react'
+import { Plus, SmilePlus, Send, X, CornerUpLeft, Clock, Image, Film, File } from 'lucide-react'
 import { useDropzone } from 'react-dropzone'
 import { useQuery } from '@tanstack/react-query'
 import { useWs } from '../../store/ws'
@@ -13,11 +13,17 @@ export interface ReplyTarget {
   content: string | null
 }
 
+export interface FileWithTtl {
+  file: File
+  ttlHours: number | null
+  preview: string | null
+}
+
 interface Props {
   channelId: string
   serverId: string
   placeholder?: string
-  onSend: (content: string, replyTo?: string) => void
+  onSend: (content: string, replyTo?: string, files?: FileWithTtl[]) => void
   replyTo?: ReplyTarget | null
   onCancelReply?: () => void
 }
@@ -29,15 +35,33 @@ interface MentionUser {
   discriminator: string
 }
 
+const TTL_OPTIONS = [
+  { label: 'Ne pas expirer', value: null },
+  { label: '1 heure', value: 1 },
+  { label: '24 heures', value: 24 },
+  { label: '7 jours', value: 168 },
+  { label: '30 jours', value: 720 },
+]
+
+function isVideo(file: File) { return file.type.startsWith('video/') }
+function isImage(file: File) { return file.type.startsWith('image/') }
+
+function FileIcon({ file }: { file: File }) {
+  if (isImage(file)) return <Image size={14} className="text-blue-400" />
+  if (isVideo(file)) return <Film size={14} className="text-purple-400" />
+  return <File size={14} className="text-fc-muted" />
+}
+
 export default function MessageInput({ channelId, serverId, placeholder, onSend, replyTo, onCancelReply }: Props) {
   const [content, setContent] = useState('')
-  const [files, setFiles] = useState<File[]>([])
+  const [files, setFiles] = useState<FileWithTtl[]>([])
   const [mentionQuery, setMentionQuery] = useState('')
   const [mentionIndex, setMentionIndex] = useState(0)
   const [showMentions, setShowMentions] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [cursorPos, setCursorPos] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const { send } = useWs()
   const typingTimeout = useRef<ReturnType<typeof setTimeout>>()
 
@@ -48,11 +72,55 @@ export default function MessageInput({ channelId, serverId, placeholder, onSend,
     enabled: showMentions && mentionQuery.length >= 1,
   })
 
-  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
     noClick: true,
     noKeyboard: true,
-    onDrop: (accepted) => setFiles(prev => [...prev, ...accepted]),
+    onDrop: (accepted) => addFiles(accepted),
   })
+
+  const addFiles = useCallback((newFiles: File[]) => {
+    const wrapped: FileWithTtl[] = newFiles.map(f => ({
+      file: f,
+      ttlHours: isVideo(f) ? 24 : null,
+      preview: isImage(f) ? URL.createObjectURL(f) : null,
+    }))
+    setFiles(prev => [...prev, ...wrapped])
+  }, [])
+
+  // Coller image depuis le presse-papiers
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+      const imageItems = Array.from(items).filter(i => i.type.startsWith('image/'))
+      if (imageItems.length === 0) return
+      const filesFromClipboard = imageItems.map(i => i.getAsFile()).filter(Boolean) as File[]
+      if (filesFromClipboard.length > 0) {
+        e.preventDefault()
+        addFiles(filesFromClipboard)
+      }
+    }
+    document.addEventListener('paste', handlePaste)
+    return () => document.removeEventListener('paste', handlePaste)
+  }, [addFiles])
+
+  // Libérer les URLs de preview
+  useEffect(() => {
+    return () => {
+      files.forEach(f => { if (f.preview) URL.revokeObjectURL(f.preview) })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const removeFile = (idx: number) => {
+    setFiles(prev => {
+      if (prev[idx]?.preview) URL.revokeObjectURL(prev[idx].preview!)
+      return prev.filter((_, i) => i !== idx)
+    })
+  }
+
+  const updateTtl = (idx: number, ttlHours: number | null) => {
+    setFiles(prev => prev.map((f, i) => i === idx ? { ...f, ttlHours } : f))
+  }
 
   const detectMention = (value: string, pos: number) => {
     const before = value.slice(0, pos)
@@ -85,31 +153,12 @@ export default function MessageInput({ channelId, serverId, placeholder, onSend,
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (showMentions && mentionResults.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setMentionIndex(i => Math.min(i + 1, mentionResults.length - 1))
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setMentionIndex(i => Math.max(i - 1, 0))
-        return
-      }
-      if (e.key === 'Tab' || e.key === 'Enter' && showMentions) {
-        e.preventDefault()
-        insertMention(mentionResults[mentionIndex])
-        return
-      }
-      if (e.key === 'Escape') {
-        setShowMentions(false)
-        return
-      }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionResults.length - 1)); return }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return }
+      if (e.key === 'Tab' || (e.key === 'Enter' && showMentions)) { e.preventDefault(); insertMention(mentionResults[mentionIndex]); return }
+      if (e.key === 'Escape') { setShowMentions(false); return }
     }
-
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      submit()
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -118,7 +167,6 @@ export default function MessageInput({ channelId, serverId, placeholder, onSend,
     setContent(val)
     setCursorPos(pos)
     detectMention(val, pos)
-
     send({ type: 'TYPING_START', channel_id: channelId })
     clearTimeout(typingTimeout.current)
     typingTimeout.current = setTimeout(() => {}, 3000)
@@ -127,7 +175,7 @@ export default function MessageInput({ channelId, serverId, placeholder, onSend,
   const submit = () => {
     const trimmed = content.trim()
     if (!trimmed && files.length === 0) return
-    if (trimmed) onSend(trimmed, replyTo?.id)
+    onSend(trimmed, replyTo?.id, files.length > 0 ? files : undefined)
     setContent('')
     setFiles([])
     setShowMentions(false)
@@ -142,8 +190,10 @@ export default function MessageInput({ channelId, serverId, placeholder, onSend,
     }
   }, [content])
 
+  const hasVideos = files.some(f => isVideo(f.file))
+
   return (
-    <div {...getRootProps()} className={`px-4 pb-4 relative ${isDragActive ? 'ring-2 ring-fc-accent ring-inset' : ''}`}>
+    <div {...getRootProps()} className={`px-4 pb-4 relative ${isDragActive ? 'ring-2 ring-fc-accent ring-inset rounded-lg' : ''}`}>
       <input {...getInputProps()} />
 
       {/* Barre de réponse */}
@@ -155,11 +205,7 @@ export default function MessageInput({ channelId, serverId, placeholder, onSend,
           {replyTo.content && (
             <span className="text-fc-muted truncate max-w-xs">{replyTo.content.slice(0, 80)}</span>
           )}
-          <button
-            onClick={onCancelReply}
-            className="ml-auto p-0.5 rounded hover:bg-fc-hover text-fc-muted hover:text-white transition"
-            title="Annuler la réponse"
-          >
+          <button onClick={onCancelReply} className="ml-auto p-0.5 rounded hover:bg-fc-hover text-fc-muted hover:text-white transition" title="Annuler">
             <X size={12} />
           </button>
         </div>
@@ -179,9 +225,7 @@ export default function MessageInput({ channelId, serverId, placeholder, onSend,
                 ${idx === mentionIndex ? 'bg-fc-accent/20 text-white' : 'text-fc-text hover:bg-fc-hover'}`}
             >
               <div className="w-7 h-7 rounded-full bg-fc-accent flex items-center justify-center text-xs font-bold text-white flex-shrink-0 overflow-hidden">
-                {user.avatar
-                  ? <img src={user.avatar} alt="" className="w-full h-full object-cover" />
-                  : user.username.charAt(0).toUpperCase()}
+                {user.avatar ? <img src={user.avatar} alt="" className="w-full h-full object-cover" /> : user.username.charAt(0).toUpperCase()}
               </div>
               <div>
                 <div className="text-sm font-medium">{user.username}</div>
@@ -194,29 +238,76 @@ export default function MessageInput({ channelId, serverId, placeholder, onSend,
 
       {/* Aperçu fichiers */}
       {files.length > 0 && (
-        <div className="flex gap-2 mb-2 flex-wrap">
-          {files.map((f, i) => (
-            <div key={i} className="flex items-center gap-1 bg-fc-input px-2 py-1 rounded text-sm">
-              <span className="text-fc-text truncate max-w-32">{f.name}</span>
+        <div className="flex gap-2 mb-2 flex-wrap p-2 bg-fc-input/40 rounded-lg border border-fc-hover">
+          {files.map((fw, i) => (
+            <div key={i} className="relative group flex flex-col gap-1">
+              {/* Preview image */}
+              {fw.preview ? (
+                <div className="w-20 h-20 rounded overflow-hidden border border-fc-hover flex-shrink-0">
+                  <img src={fw.preview} alt="" className="w-full h-full object-cover" />
+                </div>
+              ) : (
+                <div className="w-20 h-20 rounded border border-fc-hover bg-fc-bg flex flex-col items-center justify-center gap-1 text-center">
+                  <FileIcon file={fw.file} />
+                  <span className="text-xs text-fc-muted truncate w-16 text-center px-1">{fw.file.name}</span>
+                </div>
+              )}
+
+              {/* TTL selector pour vidéos */}
+              {isVideo(fw.file) && (
+                <select
+                  value={fw.ttlHours ?? ''}
+                  onChange={e => updateTtl(i, e.target.value ? Number(e.target.value) : null)}
+                  className="text-xs bg-fc-bg border border-fc-hover rounded px-1 py-0.5 text-fc-muted w-20"
+                  title="Durée de vie"
+                >
+                  {TTL_OPTIONS.map(o => (
+                    <option key={String(o.value)} value={o.value ?? ''}>{o.label}</option>
+                  ))}
+                </select>
+              )}
+
+              {/* Bouton supprimer */}
               <button
-                onClick={() => setFiles(fs => fs.filter((_, j) => j !== i))}
-                className="text-fc-muted hover:text-fc-red ml-1"
+                onClick={() => removeFile(i)}
+                className="absolute -top-1 -right-1 w-4 h-4 bg-fc-red rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition"
               >
-                ×
+                <X size={8} />
               </button>
             </div>
           ))}
+
+          {hasVideos && (
+            <div className="flex items-center gap-1 text-xs text-fc-muted self-start mt-1">
+              <Clock size={10} />
+              <span>TTL vidéos configuré par fichier</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Indicateur drag */}
+      {isDragActive && (
+        <div className="absolute inset-0 bg-fc-accent/10 border-2 border-dashed border-fc-accent rounded-lg flex items-center justify-center z-10 pointer-events-none">
+          <span className="text-fc-accent font-semibold text-sm">Déposer les fichiers ici</span>
         </div>
       )}
 
       <div className="flex items-end gap-2 bg-fc-input rounded-lg px-2 py-2">
         <button
-          onClick={open}
+          onClick={() => fileInputRef.current?.click()}
           className="p-1.5 text-fc-muted hover:text-white rounded transition flex-shrink-0"
           title="Joindre un fichier"
         >
           <Plus size={20} />
         </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={e => { if (e.target.files) { addFiles(Array.from(e.target.files)); e.target.value = '' } }}
+        />
 
         <textarea
           ref={textareaRef}
@@ -240,6 +331,7 @@ export default function MessageInput({ channelId, serverId, placeholder, onSend,
             </button>
             {showEmojiPicker && (
               <EmojiPicker
+                serverId={serverId}
                 onPick={(emoji) => {
                   const pos = textareaRef.current?.selectionStart ?? content.length
                   setContent(c => c.slice(0, pos) + emoji + c.slice(pos))

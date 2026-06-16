@@ -5,6 +5,7 @@ import { Hash, Users, Bell, Pin, Search, Volume2, Video, Megaphone, MessagesSqua
 import api from '../api/client'
 import { useChat } from '../store/chat'
 import { useWs } from '../store/ws'
+import type { FileWithTtl } from '../components/chat/MessageInput'
 import MessageList from '../components/chat/MessageList'
 import MessageInput, { ReplyTarget } from '../components/chat/MessageInput'
 import { useUnread } from '../store/unread'
@@ -30,7 +31,7 @@ function channelIcon(type: string, size = 18) {
 
 export default function ChannelPage() {
   const { serverId, channelId } = useParams()
-  const { addMessages, addMessage, updateMessage, deleteMessage, addReaction, removeReaction, setTyping, clearTyping } = useChat()
+  const { addMessages, addMessage, updateMessage, deleteMessage, mergeAttachments, addReaction, removeReaction, setTyping, clearTyping } = useChat()
   const { on, subscribeChannel } = useWs()
   const markRead = useUnread(s => s.markRead)
   const [showMembers, setShowMembers] = useState(true)
@@ -90,12 +91,15 @@ export default function ChannelPage() {
           setTimeout(() => clearTyping(channelId, d.user_id), 5000)
         }
       }),
+      on('MESSAGE_ATTACHMENT_ADDED', (d: any) => {
+        if (d.channel_id === channelId) mergeAttachments(channelId, d.message_id, d.attachments)
+      }),
     ]
     return () => offs.forEach(off => off())
   }, [channelId])
 
   const sendMsg = useMutation({
-    mutationFn: ({ content, reply_to }: { content: string; reply_to?: string }) =>
+    mutationFn: ({ content, reply_to }: { content: string | null; reply_to?: string }) =>
       api.post(`/servers/${serverId}/channels/${channelId}/messages`, { content, reply_to }),
     onError: () => toast.error("Échec de l'envoi"),
   })
@@ -247,7 +251,26 @@ export default function ChannelPage() {
           channelId={channelId}
           serverId={serverId}
           placeholder={`Message dans #${currentChannel?.name ?? '...'}`}
-          onSend={(content, replyToId) => sendMsg.mutate({ content, reply_to: replyToId })}
+          onSend={async (content, replyToId, files) => {
+            try {
+              const res = await sendMsg.mutateAsync({ content: content || null, reply_to: replyToId })
+              const msgId = res.data?.id
+              if (files && files.length > 0 && msgId) {
+                const fd = new FormData()
+                for (const fw of files) {
+                  fd.append('files', fw.file)
+                  if (fw.ttlHours != null) fd.append('ttl_hours', String(fw.ttlHours))
+                }
+                await api.post(
+                  `/servers/${serverId}/channels/${channelId}/messages/${msgId}/attachments`,
+                  fd,
+                  { headers: { 'Content-Type': 'multipart/form-data' } }
+                )
+              }
+            } catch {
+              // erreur déjà gérée par sendMsg
+            }
+          }}
           replyTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
         />

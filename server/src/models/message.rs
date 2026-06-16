@@ -31,6 +31,7 @@ pub struct MessageWithAuthor {
     pub author_username: String,
     pub author_discriminator: String,
     pub author_avatar: Option<String>,
+    pub author_is_bot: bool,
     pub attachments: Vec<Attachment>,
     pub reactions: Vec<ReactionCount>,
 }
@@ -45,6 +46,7 @@ pub struct Attachment {
     pub url: String,
     pub width: Option<i32>,
     pub height: Option<i32>,
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Clone)]

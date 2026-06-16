@@ -8,6 +8,7 @@ import { useWs } from '../store/ws'
 import { usePresence } from '../store/presence'
 import MessageList from '../components/chat/MessageList'
 import MessageInput from '../components/chat/MessageInput'
+import type { FileWithTtl } from '../components/chat/MessageInput'
 import toast from 'react-hot-toast'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -88,7 +89,8 @@ export default function DMPage() {
   }, [dmId])
 
   const sendDm = useMutation({
-    mutationFn: (content: string) => api.post(`/dms/${dmId}/messages`, { content }),
+    mutationFn: (content: string | null) =>
+      api.post(`/dms/${dmId}/messages`, { content: content ?? '' }),
     onError: () => toast.error('Envoi impossible'),
   })
 
@@ -141,7 +143,9 @@ export default function DMPage() {
         channelId={dmId}
         serverId=""
         placeholder={`Message @${partnerName}`}
-        onSend={(content) => sendDm.mutate(content)}
+        onSend={(content: string, _replyTo?: string, _files?: FileWithTtl[]) =>
+          sendDm.mutate(content || null)
+        }
       />
     </div>
   )

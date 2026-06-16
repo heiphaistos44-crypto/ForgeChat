@@ -200,26 +200,56 @@ export function useWebRTC(channelId: string | null): UseWebRTCReturn {
   const shareScreen = useCallback(async () => {
     try {
       const screenStream = await (navigator.mediaDevices as any).getDisplayMedia({
-        video: true,
+        video: { cursor: 'never', displaySurface: 'monitor' },
         audio: false,
       })
       const screenTrack = screenStream.getVideoTracks()[0]
 
-      // Remplacer la piste vidéo dans tous les PC
-      pcsRef.current.forEach(pc => {
+      // Remplacer/ajouter la piste vidéo dans tous les PC + renegociation si nécessaire
+      for (const [peerId, pc] of pcsRef.current) {
         const sender = pc.getSenders().find(s => s.track?.kind === 'video')
         if (sender) {
-          sender.replaceTrack(screenTrack)
+          await sender.replaceTrack(screenTrack)
+        } else {
+          pc.addTrack(screenTrack, localStreamRef.current ?? screenStream)
+          try {
+            const offer = await pc.createOffer()
+            await pc.setLocalDescription(offer)
+            send({ type: 'VOICE_SIGNAL', to: peerId, payload: { type: 'offer', data: { type: offer.type, sdp: offer.sdp } } })
+          } catch {}
         }
-      })
+      }
+
+      // Mettre à jour le stream local pour la preview
+      if (localStreamRef.current) {
+        localStreamRef.current.getVideoTracks().forEach(t => {
+          t.stop()
+          localStreamRef.current!.removeTrack(t)
+        })
+        localStreamRef.current.addTrack(screenTrack)
+        setLocalStream(new MediaStream(localStreamRef.current.getTracks()))
+      }
+      setVideoEnabled(true)
 
       screenTrack.onended = () => {
         setVideoEnabled(false)
+        if (localStreamRef.current) {
+          localStreamRef.current.getVideoTracks().forEach(t => {
+            t.stop()
+            localStreamRef.current!.removeTrack(t)
+          })
+          setLocalStream(new MediaStream(localStreamRef.current.getTracks()))
+        }
+        // Restaurer la caméra dans les PC si besoin
+        pcsRef.current.forEach(pc => {
+          const sender = pc.getSenders().find(s => s.track?.kind === 'video')
+          sender?.replaceTrack(null)
+        })
       }
     } catch {
-      // L'utilisateur a annulé le partage
+      // L'utilisateur a annulé le partage d'écran
     }
-  }, [])
+  }, [send])
 
   // ─── Gestionnaires d'événements WebSocket ───────────────────────────────
   useEffect(() => {

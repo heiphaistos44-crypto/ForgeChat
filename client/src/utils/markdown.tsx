@@ -1,5 +1,5 @@
 // Parser Markdown minimaliste compatible Discord
-export function renderMarkdown(text: string): React.ReactNode {
+export function renderMarkdown(text: string, customEmojis?: Record<string, string>): React.ReactNode {
   const lines = text.split('\n')
   const elements: React.ReactNode[] = []
 
@@ -40,22 +40,20 @@ export function renderMarkdown(text: string): React.ReactNode {
     }
 
     // Ligne normale avec inline markdown
-    elements.push(<span key={i} style={{ display: 'block' }}>{inlineMarkdown(line)}</span>)
+    elements.push(<span key={i} style={{ display: 'block' }}>{inlineMarkdown(line, customEmojis)}</span>)
     i++
   }
 
   return <div className="fc-markdown">{elements}</div>
 }
 
-function inlineMarkdown(text: string): React.ReactNode {
-  // Ordre : code inline > gras+italique > gras > italique > barré > liens > mentions > spoiler
-  const parts = tokenize(text)
+function inlineMarkdown(text: string, customEmojis?: Record<string, string>): React.ReactNode {
+  const parts = tokenize(text, customEmojis)
   return <>{parts}</>
 }
 
-function tokenize(text: string): React.ReactNode[] {
-  // Regex pour détecter les tokens inline
-  const pattern = /(`[^`]+`|\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|__(.+?)__|_(.+?)_|~~(.+?)~~|\|\|(.+?)\|\||<@[^>]+>|@everyone|@here|https?:\/\/\S+)/g
+function tokenize(text: string, customEmojis?: Record<string, string>): React.ReactNode[] {
+  const pattern = /(`[^`]+`|\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|__(.+?)__|_(.+?)_|~~(.+?)~~|\|\|(.+?)\|\||<@[^>]+>|@everyone|@here|https?:\/\/\S+|:[a-z0-9_]+:)/g
   const result: React.ReactNode[] = []
   let lastIndex = 0
   let match: RegExpExecArray | null
@@ -96,6 +94,17 @@ function tokenize(text: string): React.ReactNode[] {
           {full}
         </a>
       )
+    } else if (full.startsWith(':') && full.endsWith(':') && customEmojis) {
+      const name = full.slice(1, -1)
+      const url = customEmojis[name]
+      if (url) {
+        result.push(
+          <img key={match.index} src={url} alt={name} title={`:${name}:`}
+            className="inline-block w-5 h-5 object-contain align-middle mx-0.5" />
+        )
+      } else {
+        result.push(full)
+      }
     } else {
       result.push(full)
     }

@@ -11,7 +11,7 @@ use axum::{
     Router,
 };
 use sqlx::postgres::PgPoolOptions;
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 use tower_http::{
     cors::{Any, CorsLayer},
     services::ServeDir,
@@ -32,7 +32,6 @@ async fn main() -> anyhow::Result<()> {
 
     let config = Config::from_env()?;
 
-    // PostgreSQL
     let db = PgPoolOptions::new()
         .max_connections(20)
         .acquire_timeout(Duration::from_secs(5))
@@ -42,12 +41,22 @@ async fn main() -> anyhow::Result<()> {
     sqlx::migrate!("./migrations").run(&db).await?;
     tracing::info!("Migrations OK");
 
-    // Redis
     let redis_client = redis::Client::open(config.redis_url.clone())?;
     let redis_conn = redis_client.get_multiplexed_async_connection().await?;
     tracing::info!("Redis OK");
 
     let state = AppState::new(db, redis_conn, config.clone());
+
+    // Tâche de nettoyage des pièces jointes expirées (toutes les heures)
+    let cleanup_state = state.clone();
+    let cleanup_upload_dir = config.upload_dir.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(3600));
+        loop {
+            interval.tick().await;
+            cleanup_expired_attachments(&cleanup_state, &cleanup_upload_dir).await;
+        }
+    });
 
     let cors = CorsLayer::new()
         .allow_origin(config.frontend_url.parse::<axum::http::HeaderValue>()?)
@@ -62,6 +71,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/invites/:code", get(handlers::invites::get_invite_info))
         // WebSocket
         .route("/ws", get(handlers::websocket::ws_handler))
+        // Route bot (sans JWT — auth via Bearer token)
+        .route("/api/bot/messages", post(handlers::bots::bot_send_message))
         // Routes protégées
         .nest("/api", protected_routes(state.clone()))
         // Fichiers uploadés
@@ -71,12 +82,37 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state);
 
     let addr = format!("0.0.0.0:{}", config.port);
-    tracing::info!("ForgeChat écoute sur {addr}");
+    tracing::info!("ForgeChat v2.0.0 écoute sur {addr}");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+async fn cleanup_expired_attachments(state: &AppState, upload_dir: &str) {
+    let rows = sqlx::query(
+        "DELETE FROM attachments WHERE expires_at IS NOT NULL AND expires_at < NOW()
+         RETURNING url"
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let count = rows.len();
+    let base = PathBuf::from(upload_dir);
+    for row in rows {
+        use sqlx::Row;
+        let url: String = row.get("url");
+        if let Some(relative) = url.strip_prefix("/uploads/") {
+            let path = base.join(relative);
+            let _ = tokio::fs::remove_file(&path).await;
+        }
+    }
+
+    if count > 0 {
+        tracing::info!("Nettoyage : {} pièces jointes expirées supprimées", count);
+    }
 }
 
 fn protected_routes(state: AppState) -> Router<AppState> {
@@ -159,6 +195,15 @@ fn protected_routes(state: AppState) -> Router<AppState> {
         .route("/servers/:server_id/channels/:channel_id/posts/:post_id", patch(handlers::forum::update_post))
         .route("/servers/:server_id/channels/:channel_id/posts/:post_id", delete(handlers::forum::delete_post))
         .route("/servers/:server_id/channels/:channel_id/posts/:post_id/replies", post(handlers::forum::reply_to_post))
+        // Custom Emojis
+        .route("/servers/:server_id/emojis", get(handlers::emojis::list_emojis))
+        .route("/servers/:server_id/emojis", post(handlers::emojis::create_emoji))
+        .route("/servers/:server_id/emojis/:emoji_id", delete(handlers::emojis::delete_emoji))
+        // Bots
+        .route("/servers/:server_id/bots", get(handlers::bots::list_bots))
+        .route("/servers/:server_id/bots", post(handlers::bots::create_bot))
+        .route("/servers/:server_id/bots/:bot_id", delete(handlers::bots::delete_bot))
+        .route("/servers/:server_id/bots/:bot_id/token", post(handlers::bots::regenerate_token))
         .route_layer(axum_middleware::from_fn_with_state(
             state,
             middleware::require_auth,

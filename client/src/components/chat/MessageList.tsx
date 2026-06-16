@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState, useCallback, KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, useCallback, KeyboardEvent, useMemo } from 'react'
 import { format, isToday, isYesterday } from 'date-fns'
 import { fr } from 'date-fns/locale'
-import { Pencil, Trash2, SmilePlus, MessagesSquare, Check, X, Pin, CornerUpLeft, ChevronDown, Loader2 } from 'lucide-react'
+import { Pencil, Trash2, SmilePlus, MessagesSquare, Check, X, Pin, CornerUpLeft, ChevronDown, Loader2, Bot, Clock } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../../store/auth'
 import { useChat } from '../../store/chat'
 import { renderMarkdown } from '../../utils/markdown'
 import UserPopup from '../UserPopup'
+import api from '../../api/client'
 
 interface Props {
   channelId: string
@@ -38,6 +40,7 @@ interface PopupState { userId: string; x: number; y: number }
 
 export default function MessageList({
   channelId,
+  serverId,
   onDeleteMessage,
   onEditMessage,
   onOpenThread,
@@ -47,6 +50,18 @@ export default function MessageList({
   onLoadMore,
 }: Props) {
   const { user } = useAuth()
+
+  const { data: customEmojisList = [] } = useQuery<{ name: string; url: string }[]>({
+    queryKey: ['custom_emojis', serverId],
+    queryFn: () => api.get(`/servers/${serverId}/emojis`).then(r => r.data),
+    enabled: !!serverId,
+    staleTime: 60_000,
+  })
+
+  const customEmojiMap = useMemo(() =>
+    Object.fromEntries(customEmojisList.map(e => [e.name, e.url])),
+    [customEmojisList]
+  )
   const messages = useChat(s => s.messagesByChannel[channelId] ?? [])
   const typing = useChat(s => s.typing[channelId])
   const containerRef = useRef<HTMLDivElement>(null)
@@ -133,7 +148,9 @@ export default function MessageList({
     setPopup({ userId, x: e.clientX + 12, y: e.clientY - 40 })
   }
 
+  const [lightbox, setLightbox] = useState<string | null>(null)
   const isImage = (ct: string) => ct.startsWith('image/')
+  const isVideo = (ct: string) => ct.startsWith('video/')
 
   return (
     <div className="flex-1 relative flex flex-col overflow-hidden">
@@ -193,6 +210,12 @@ export default function MessageList({
                     >
                       {msg.author_username}
                     </button>
+                    {msg.author_is_bot && (
+                      <span className="inline-flex items-center gap-0.5 bg-indigo-500/20 text-indigo-300 text-xs px-1.5 py-0.5 rounded font-medium">
+                        <Bot size={10} />
+                        BOT
+                      </span>
+                    )}
                     <span className="text-xs text-fc-muted">{formatDate(msg.created_at)}</span>
                   </div>
                 )}
@@ -241,21 +264,49 @@ export default function MessageList({
 
                     {msg.content && (
                       <div className="text-fc-text text-sm break-words leading-relaxed">
-                        {renderMarkdown(msg.content)}
+                        {renderMarkdown(msg.content, customEmojiMap)}
                         {msg.edited_at && <span className="text-xs text-fc-muted ml-1.5">(modifié)</span>}
                       </div>
                     )}
 
                     {/* Pièces jointes */}
                     {msg.attachments?.map((att: any) => (
-                      <div key={att.id} className="mt-1">
+                      <div key={att.id} className="mt-1.5">
                         {isImage(att.content_type) ? (
-                          <img
-                            src={att.url}
-                            alt={att.filename}
-                            className="max-w-sm max-h-72 rounded object-cover cursor-pointer hover:opacity-90 transition"
-                            onClick={() => window.open(att.url, '_blank')}
-                          />
+                          <div className="relative inline-block group/img">
+                            <img
+                              src={att.url}
+                              alt={att.filename}
+                              className="max-w-sm max-h-72 rounded object-cover cursor-zoom-in hover:opacity-90 transition shadow"
+                              onClick={() => setLightbox(att.url)}
+                            />
+                            {att.expires_at && (
+                              <div className="absolute bottom-1 right-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded flex items-center gap-1">
+                                <Clock size={9} />
+                                {new Date(att.expires_at) > new Date()
+                                  ? `Expire ${format(new Date(att.expires_at), 'dd/MM HH:mm')}`
+                                  : 'Expiré'}
+                              </div>
+                            )}
+                          </div>
+                        ) : isVideo(att.content_type) ? (
+                          <div className="relative max-w-sm">
+                            <video
+                              src={att.url}
+                              controls
+                              preload="metadata"
+                              className="max-w-full max-h-72 rounded shadow"
+                              style={{ background: '#111' }}
+                            />
+                            {att.expires_at && (
+                              <div className="mt-0.5 text-xs text-fc-muted flex items-center gap-1">
+                                <Clock size={10} />
+                                {new Date(att.expires_at) > new Date()
+                                  ? `Expire le ${format(new Date(att.expires_at), 'dd/MM/yyyy HH:mm')}`
+                                  : 'Vidéo expirée'}
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <a
                             href={att.url}
@@ -407,6 +458,27 @@ export default function MessageList({
           anchorY={popup.y}
           onClose={() => setPopup(null)}
         />
+      )}
+
+      {/* Lightbox image plein écran */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 bg-black/90 flex items-center justify-center z-[100] cursor-zoom-out"
+          onClick={() => setLightbox(null)}
+        >
+          <img
+            src={lightbox}
+            alt=""
+            className="max-w-[90vw] max-h-[90vh] object-contain rounded shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          />
+          <button
+            className="absolute top-4 right-4 text-white bg-black/50 p-2 rounded-full hover:bg-black/80 transition"
+            onClick={() => setLightbox(null)}
+          >
+            <X size={20} />
+          </button>
+        </div>
       )}
     </div>
   )

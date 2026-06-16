@@ -2,6 +2,7 @@ use axum::{
     extract::{Multipart, Path, State},
     Extension, Json,
 };
+use chrono::{Duration, Utc};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -25,9 +26,19 @@ pub async fn upload_file(
         .map_err(|e| AppError::Internal(e.into()))?;
 
     let mut uploaded = Vec::new();
+    let mut ttl_hours: Option<i64> = None;
 
     while let Some(field) = multipart.next_field().await
         .map_err(|e| AppError::BadRequest(e.to_string()))? {
+
+        let field_name = field.name().unwrap_or("").to_string();
+
+        // Champ TTL (texte, pas un fichier)
+        if field_name == "ttl_hours" {
+            let val = field.text().await.unwrap_or_default();
+            ttl_hours = val.parse::<i64>().ok();
+            continue;
+        }
 
         let original_name = field.file_name()
             .unwrap_or("fichier")
@@ -58,27 +69,43 @@ pub async fn upload_file(
 
         let url = format!("/uploads/{}", filename);
         let size = data.len() as i64;
+        let expires_at = ttl_hours.map(|h| Utc::now() + Duration::hours(h));
 
         let attachment = sqlx::query(
-            "INSERT INTO attachments (message_id, filename, content_type, size, url)
-             VALUES ($1, $2, $3, $4, $5) RETURNING id, url, filename, content_type, size"
+            "INSERT INTO attachments (message_id, filename, content_type, size, url, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING id, url, filename, content_type, size, expires_at"
         )
         .bind(message_id)
         .bind(&original_name)
         .bind(&content_type)
         .bind(size)
         .bind(&url)
+        .bind(expires_at)
         .fetch_one(&state.db)
         .await?;
 
         use sqlx::Row;
-        uploaded.push(serde_json::json!({
+        let att_json = serde_json::json!({
             "id": attachment.get::<Uuid, _>("id"),
             "url": attachment.get::<String, _>("url"),
             "filename": attachment.get::<String, _>("filename"),
             "content_type": attachment.get::<String, _>("content_type"),
             "size": attachment.get::<i64, _>("size"),
-        }));
+            "expires_at": attachment.get::<Option<chrono::DateTime<Utc>>, _>("expires_at"),
+        });
+        uploaded.push(att_json);
+    }
+
+    // Broadcast MESSAGE_ATTACHMENT_ADDED pour mise à jour temps réel
+    if !uploaded.is_empty() {
+        let event = serde_json::json!({
+            "type": "MESSAGE_ATTACHMENT_ADDED",
+            "message_id": message_id,
+            "channel_id": channel_id,
+            "attachments": uploaded,
+        });
+        state.broadcast_to_channel(channel_id, event.to_string()).await;
     }
 
     Ok(Json(uploaded))

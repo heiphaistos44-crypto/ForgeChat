@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { Search } from 'lucide-react'
+import { Search, Smile } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import api from '../../api/client'
 
 const CATEGORIES = [
   {
@@ -16,11 +18,11 @@ const CATEGORIES = [
   },
   {
     label: '🐶 Animaux',
-    emojis: ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🐔','🐧','🐦','🐤','🦆','🦅','🦉','🦇','🐺','🐗','🐴','🦄','🐝','🐛','🦋','🐌','🐞','🐜','🦟','🦗','🕷️','🦂','🐢','🦎','🐍','🐊','🦕','🦖','🐙','🦑','🦐','🦞','🦀','🐡','🐟','🐠','🐬','🐳','🐋','🦈','🐊','🐅','🐆','🦓','🦍','🦧','🦣','🐘','🦛','🦏','🐪','🐫','🦒','🦘','🦬','🐃','🐂','🐄','🐎','🐖','🐏','🐑','🦙','🐐','🦌','🐕','🐩','🦮','🐕‍🦺','🐈','🐈‍⬛'],
+    emojis: ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🐔','🐧','🐦','🐤','🦆','🦅','🦉','🦇','🐺','🐗','🐴','🦄','🐝','🐛','🦋','🐌','🐞','🐜','🦟','🦗','🕷️','🦂','🐢','🦎','🐍','🐊','🦕','🦖','🐙','🦑','🦐','🦞','🦀','🐡','🐟','🐠','🐬','🐳','🐋','🦈','🐊','🐅','🐆','🦓','🦍','🦧','🦣','🐘','🦛','🦏','🐪','🐫','🦒','🦘','🦬'],
   },
   {
     label: '🍎 Nourriture',
-    emojis: ['🍏','🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍈','🍑','🥭','🍍','🥥','🥝','🍅','🍆','🥑','🥦','🥕','🌽','🍄','🧄','🧅','🥔','🍞','🥐','🍕','🍔','🍟','🌭','🍿','🧂','🥚','🍳','🥞','🧇','🥓','🥩','🍗','🍖','🌮','🌯','🍱','🍣','🍜','🍝','🍛','🥗','🍲','🍛','🍙','🍚','🍘','🍥','🧁','🍰','🎂','🍭','🍫','🍩','🍪','☕','🍵','🧃','🥤','🧋','🍺','🍻','🥂','🍷','🥃','🍹'],
+    emojis: ['🍏','🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍈','🍑','🥭','🍍','🥥','🥝','🍅','🍆','🥑','🥦','🥕','🌽','🍄','🧄','🧅','🥔','🍞','🥐','🍕','🍔','🍟','🌭','🍿','🧂','🥚','🍳','🥞','🧇','🥓','🥩','🍗','🍖','🌮','🌯','🍱','🍣','🍜','🍝','🍛','🥗','🍲','🍙','🍚','🍘','🍥','🧁','🍰','🎂','🍭','🍫','🍩','🍪','☕','🍵','🧃','🥤','🧋','🍺','🍻','🥂','🍷','🥃','🍹'],
   },
   {
     label: '⚽ Sports',
@@ -28,28 +30,40 @@ const CATEGORIES = [
   },
   {
     label: '🌍 Nature',
-    emojis: ['🌸','🌺','🌻','🌹','🌷','🌼','🌱','🌿','🍀','🍁','🍂','🍃','🌾','🌲','🌳','🌴','🌵','🎋','🍄','🌊','🌀','🌈','❄️','☃️','⛄','🌤️','⛅','☁️','🌧️','⛈️','🌩️','🌨️','💨','💧','💦','⚡','🔥','🌙','⭐','🌟','☀️','🌤️','🌍','🌎','🌏','🌋','⛰️','🏔️','🏕️','🏖️','🏜️','🏝️','🌃','🌆','🌇','🌉'],
+    emojis: ['🌸','🌺','🌻','🌹','🌷','🌼','🌱','🌿','🍀','🍁','🍂','🍃','🌾','🌲','🌳','🌴','🌵','🎋','🍄','🌊','🌀','🌈','❄️','☃️','⛄','🌤️','⛅','☁️','🌧️','⛈️','🌩️','🌨️','💨','💧','💦','⚡','🔥','🌙','⭐','🌟','☀️','🌍','🌎','🌏','🌋','⛰️','🏔️','🏕️','🏖️','🏜️','🏝️','🌃','🌆','🌇','🌉'],
   },
   {
     label: '🚗 Objets',
-    emojis: ['🚗','🚕','🚙','🚌','🚎','🏎️','🚓','🚑','🚒','✈️','🚀','🛸','🚁','🛶','⛵','🚢','🛥️','🚤','🛳️','⛴️','🚂','🚃','🚄','🚅','🚆','🚇','🚊','🚉','🛺','🚲','🛴','🛵','🏍️','💺','🛸','⌚','📱','💻','🖥️','🖨️','⌨️','🖱️','📷','📸','📹','🎥','📽️','📺','📻','🎙️','📡','🔋','💡','🔦','🕯️','💰','💳','💎','⚗️','🔭','🔬','🧲','🔑','🗝️','🔒','🔓','🔨','🪓','⛏️','🔧','🔩','🪛','🧰','🗡️','⚔️','🛡️','🎁','🎀','🎊','🎉','🎈','🎂','🎗️','🏮','🧧','✉️','📬','📮','📦','📫','📚','📖','📝','✏️','🖊️','🖋️','📌','📍','📎','🖇️','✂️','🗃️','🗂️','🗄️','🗑️','🔐','🔏'],
+    emojis: ['🚗','🚕','🚙','🚌','🚎','🏎️','🚓','🚑','🚒','✈️','🚀','🛸','🚁','🛶','⛵','🚢','🛥️','🚤','🛳️','⛴️','🚂','🚃','🚄','🚅','🚆','🚇','🚊','🚉','🛺','🚲','🛴','🛵','🏍️','💺','⌚','📱','💻','🖥️','🖨️','⌨️','🖱️','📷','📸','📹','🎥','📽️','📺','📻','🎙️','📡','🔋','💡','🔦','🕯️','💰','💳','💎','⚗️','🔭','🔬','🧲','🔑','🗝️','🔒','🔓','🔨','🪓','⛏️','🔧','🔩','🪛','🧰','🗡️','⚔️','🛡️','🎁','🎀','🎊','🎉','🎈','🎂','🎗️','🏮','🧧','✉️','📬','📮','📦','📫','📚','📖','📝','✏️','🖊️','🖋️','📌','📍','📎','🖇️','✂️'],
   },
 ]
+
+interface CustomEmoji {
+  id: string
+  name: string
+  url: string
+}
 
 interface Props {
   onPick: (emoji: string) => void
   onClose: () => void
+  serverId?: string
 }
 
-export default function EmojiPicker({ onPick, onClose }: Props) {
+export default function EmojiPicker({ onPick, onClose, serverId }: Props) {
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState(0)
+  const [tab, setTab] = useState<'standard' | 'server'>('standard')
+
+  const { data: serverEmojis = [] } = useQuery<CustomEmoji[]>({
+    queryKey: ['custom_emojis', serverId],
+    queryFn: () => api.get(`/servers/${serverId}/emojis`).then(r => r.data),
+    enabled: !!serverId && tab === 'server',
+    staleTime: 60_000,
+  })
 
   const filtered = search.trim()
-    ? CATEGORIES.flatMap(c => c.emojis).filter(e => {
-        const q = search.toLowerCase()
-        return e.includes(q) || q.length === 0
-      })
+    ? CATEGORIES.flatMap(c => c.emojis).filter(e => e.includes(search.toLowerCase()))
     : null
 
   const displayed = filtered ?? CATEGORIES[activeCategory].emojis
@@ -73,46 +87,93 @@ export default function EmojiPicker({ onPick, onClose }: Props) {
         </div>
       </div>
 
-      {/* Onglets catégories */}
-      {!filtered && (
-        <div className="flex overflow-x-auto no-scrollbar border-b border-fc-hover px-1">
-          {CATEGORIES.map((cat, i) => (
-            <button
-              key={i}
-              onClick={() => setActiveCategory(i)}
-              title={cat.label.split(' ').slice(1).join(' ')}
-              className={`flex-shrink-0 px-2 py-1.5 text-base hover:bg-fc-hover/50 rounded transition
-                ${activeCategory === i ? 'border-b-2 border-fc-accent' : ''}`}
-            >
-              {cat.emojis[0]}
-            </button>
-          ))}
+      {/* Onglets Standard / Serveur */}
+      {serverId && (
+        <div className="flex border-b border-fc-hover">
+          <button
+            onClick={() => setTab('standard')}
+            className={`flex-1 py-1.5 text-xs font-semibold transition ${tab === 'standard' ? 'text-white border-b-2 border-fc-accent' : 'text-fc-muted hover:text-white'}`}
+          >
+            Standard
+          </button>
+          <button
+            onClick={() => setTab('server')}
+            className={`flex-1 py-1.5 text-xs font-semibold transition ${tab === 'server' ? 'text-white border-b-2 border-fc-accent' : 'text-fc-muted hover:text-white'}`}
+          >
+            Serveur {serverEmojis.length > 0 ? `(${serverEmojis.length})` : ''}
+          </button>
         </div>
       )}
 
-      {/* Grille emojis */}
-      <div className="h-52 overflow-y-auto p-2">
-        {!filtered && (
-          <div className="text-xs font-semibold text-fc-muted uppercase tracking-wide mb-2 px-1">
-            {CATEGORIES[activeCategory].label.split(' ').slice(1).join(' ')}
-          </div>
-        )}
-        <div className="grid grid-cols-9 gap-0.5">
-          {displayed.map((emoji, i) => (
-            <button
-              key={i}
-              onClick={() => { onPick(emoji); onClose() }}
-              className="w-8 h-8 flex items-center justify-center text-xl rounded hover:bg-fc-hover transition hover:scale-110"
-              title={emoji}
-            >
-              {emoji}
-            </button>
-          ))}
-          {displayed.length === 0 && (
-            <div className="col-span-9 text-center text-fc-muted text-sm py-6">Aucun résultat</div>
+      {tab === 'server' ? (
+        <div className="h-52 overflow-y-auto p-2">
+          {serverEmojis.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-2 text-fc-muted">
+              <Smile size={32} className="opacity-30" />
+              <p className="text-sm">Aucun emoji personnalisé</p>
+              <p className="text-xs">Ajoutez-en dans les paramètres du serveur</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-8 gap-1">
+              {serverEmojis
+                .filter(e => !search.trim() || e.name.includes(search.toLowerCase()))
+                .map(emoji => (
+                  <button
+                    key={emoji.id}
+                    onClick={() => { onPick(`:${emoji.name}:`); onClose() }}
+                    className="w-8 h-8 flex items-center justify-center rounded hover:bg-fc-hover transition hover:scale-110"
+                    title={`:${emoji.name}:`}
+                  >
+                    <img src={emoji.url} alt={emoji.name} className="w-6 h-6 object-contain" />
+                  </button>
+                ))}
+            </div>
           )}
         </div>
-      </div>
+      ) : (
+        <>
+          {/* Onglets catégories standard */}
+          {!filtered && (
+            <div className="flex overflow-x-auto no-scrollbar border-b border-fc-hover px-1">
+              {CATEGORIES.map((cat, i) => (
+                <button
+                  key={i}
+                  onClick={() => setActiveCategory(i)}
+                  title={cat.label.split(' ').slice(1).join(' ')}
+                  className={`flex-shrink-0 px-2 py-1.5 text-base hover:bg-fc-hover/50 rounded transition
+                    ${activeCategory === i ? 'border-b-2 border-fc-accent' : ''}`}
+                >
+                  {cat.emojis[0]}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Grille emojis */}
+          <div className="h-52 overflow-y-auto p-2">
+            {!filtered && (
+              <div className="text-xs font-semibold text-fc-muted uppercase tracking-wide mb-2 px-1">
+                {CATEGORIES[activeCategory].label.split(' ').slice(1).join(' ')}
+              </div>
+            )}
+            <div className="grid grid-cols-9 gap-0.5">
+              {displayed.map((emoji, i) => (
+                <button
+                  key={i}
+                  onClick={() => { onPick(emoji); onClose() }}
+                  className="w-8 h-8 flex items-center justify-center text-xl rounded hover:bg-fc-hover transition hover:scale-110"
+                  title={emoji}
+                >
+                  {emoji}
+                </button>
+              ))}
+              {displayed.length === 0 && (
+                <div className="col-span-9 text-center text-fc-muted text-sm py-6">Aucun résultat</div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
