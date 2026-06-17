@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { X, Trash2, Upload, SmilePlus, Bot, Plus, RefreshCw, Copy, Check, Shield, Users, Ban, Tag } from 'lucide-react'
+import { X, Trash2, Upload, SmilePlus, Bot, Plus, RefreshCw, Copy, Check, Shield, Users, Ban, Tag, Link, ScrollText } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import api from '../../api/client'
@@ -8,6 +8,9 @@ import RolesTab from './RolesTab'
 import MembersTab from './MembersTab'
 import BansTab from './BansTab'
 import TagsTab from './TagsTab'
+import WebhooksTab from './WebhooksTab'
+import AuditLogTab from './AuditLogTab'
+import AutoModTab from './AutoModTab'
 
 interface Server {
   id: string
@@ -23,7 +26,7 @@ interface Props {
   onClose: () => void
 }
 
-type Tab = 'general' | 'roles' | 'members' | 'bans' | 'tags' | 'emojis' | 'bots'
+type Tab = 'general' | 'roles' | 'members' | 'bans' | 'tags' | 'emojis' | 'bots' | 'webhooks' | 'audit' | 'automod'
 
 export default function ServerSettingsModal({ server, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('general')
@@ -148,6 +151,12 @@ export default function ServerSettingsModal({ server, onClose }: Props) {
     setTimeout(() => setCopiedToken(false), 2000)
   }
 
+  // Canaux du serveur (pour Webhooks et AutoMod)
+  const { data: channels = [] } = useQuery<any[]>({
+    queryKey: ['server_channels', server.id],
+    queryFn: () => api.get(`/servers/${server.id}/channels`).then(r => r.data),
+  })
+
   const tabs = [
     { id: 'general' as Tab, label: 'Général' },
     { id: 'roles' as Tab, label: 'Rôles', icon: Shield },
@@ -156,6 +165,9 @@ export default function ServerSettingsModal({ server, onClose }: Props) {
     { id: 'bans' as Tab, label: 'Bans', icon: Ban },
     { id: 'emojis' as Tab, label: 'Emojis', icon: SmilePlus },
     { id: 'bots' as Tab, label: 'Bots', icon: Bot },
+    { id: 'webhooks' as Tab, label: 'Webhooks', icon: Link },
+    { id: 'audit' as Tab, label: 'Audit', icon: ScrollText },
+    { id: 'automod' as Tab, label: 'AutoMod', icon: Shield },
   ]
 
   return (
@@ -434,6 +446,9 @@ export default function ServerSettingsModal({ server, onClose }: Props) {
             {tab === 'members' && <MembersTab serverId={server.id} />}
             {tab === 'bans' && <BansTab serverId={server.id} />}
             {tab === 'tags' && <TagsTab serverId={server.id} />}
+            {tab === 'webhooks' && <WebhooksTab server={server} channels={channels} />}
+            {tab === 'audit' && <AuditLogTab server={server} />}
+            {tab === 'automod' && <AutoModTab server={server} channels={channels} />}
           </div>
         </div>
       </div>

@@ -35,6 +35,11 @@ interface VoiceStore {
   error: string | null
   // Participants par canal (pour la sidebar — tous serveurs)
   roomParticipants: Record<string, VoiceRoomParticipant[]>
+  // Push-to-talk
+  pttActive: boolean
+  pttMode: boolean
+  // Volume par utilisateur (0-200, 100 = normal)
+  userVolumes: Record<string, number>
 
   join(channelId: string, serverId: string, withVideo?: boolean): Promise<void>
   leave(): void
@@ -46,14 +51,30 @@ interface VoiceStore {
   clearError(): void
   // Appelé par App pour écouter les events globaux (joins/leaves)
   initGlobalListeners(): () => void
+  // Push-to-talk
+  setPttMode(enabled: boolean): void
+  activatePtt(): void
+  deactivatePtt(): void
+  // Volume par utilisateur
+  setUserVolume(userId: string, volume: number): void
 }
 
 // ── Singletons non-réactifs ──────────────────────────────────────────────────
 const _pcs = new Map<string, RTCPeerConnection>()
 const _iceQueues = new Map<string, RTCIceCandidateInit[]>()
+const _gainNodes = new Map<string, GainNode>()
+let _audioCtx: AudioContext | null = null
 let _localStream: MediaStream | null = null
 let _screenTrack: MediaStreamTrack | null = null
 let _offFns: Array<() => void> = []
+let _pttMuted = false // état mute "réel" avant PTT
+
+function _getAudioCtx(): AudioContext {
+  if (!_audioCtx || _audioCtx.state === 'closed') {
+    _audioCtx = new AudioContext()
+  }
+  return _audioCtx
+}
 
 const ICE_CONFIG: RTCConfiguration = {
   iceServers: [
@@ -165,6 +186,9 @@ export const useVoice = create<VoiceStore>((set, get) => ({
   screenSharing: false,
   error: null,
   roomParticipants: {},
+  pttActive: false,
+  pttMode: false,
+  userVolumes: {},
 
   // ── Listeners globaux (joins/leaves de tout le monde pour la sidebar) ──────
   initGlobalListeners: () => {
@@ -358,6 +382,7 @@ export const useVoice = create<VoiceStore>((set, get) => ({
     _pcs.forEach(pc => pc.close())
     _pcs.clear()
     _iceQueues.clear()
+    _gainNodes.clear()
 
     _localStream?.getTracks().forEach(t => t.stop())
     _localStream = null
@@ -367,7 +392,7 @@ export const useVoice = create<VoiceStore>((set, get) => ({
     _offFns.forEach(off => off())
     _offFns = []
 
-    set({ joined: false, channelId: null, serverId: null, localStream: null, peers: [], muted: false, deafened: false, videoEnabled: false, screenSharing: false, error: null })
+    set({ joined: false, channelId: null, serverId: null, localStream: null, peers: [], muted: false, deafened: false, videoEnabled: false, screenSharing: false, error: null, pttActive: false, pttMode: false, userVolumes: {} })
   },
 
   // ── Toggle mute ───────────────────────────────────────────────────────────
@@ -506,4 +531,53 @@ export const useVoice = create<VoiceStore>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  // ── Push-to-talk ──────────────────────────────────────────────────────────
+  setPttMode: (enabled) => {
+    set({ pttMode: enabled })
+    if (!enabled) {
+      // Quand on désactive PTT, on restaure le vrai état mute
+      const { muted } = get()
+      _localStream?.getAudioTracks().forEach(t => { t.enabled = !muted })
+    }
+  },
+
+  activatePtt: () => {
+    const { pttMode, joined } = get()
+    if (!pttMode || !joined) return
+    // Ouvrir le micro pendant PTT (sans changer l'état muted persistant)
+    _localStream?.getAudioTracks().forEach(t => { t.enabled = true })
+    set({ pttActive: true })
+  },
+
+  deactivatePtt: () => {
+    const { pttMode, muted, joined } = get()
+    if (!pttMode || !joined) return
+    // Remettre l'état de mute d'avant
+    _localStream?.getAudioTracks().forEach(t => { t.enabled = !muted })
+    set({ pttActive: false })
+  },
+
+  // ── Volume par utilisateur ─────────────────────────────────────────────────
+  setUserVolume: (userId, volume) => {
+    set(s => ({ userVolumes: { ...s.userVolumes, [userId]: volume } }))
+
+    // Appliquer via GainNode WebAudio si le peer a un stream
+    const peer = get().peers.find(p => p.userId === userId)
+    if (!peer?.stream) return
+
+    const ctx = _getAudioCtx()
+    let gainNode = _gainNodes.get(userId)
+
+    if (!gainNode) {
+      const source = ctx.createMediaStreamSource(peer.stream)
+      gainNode = ctx.createGain()
+      const dest = ctx.createMediaStreamDestination()
+      source.connect(gainNode)
+      gainNode.connect(dest)
+      _gainNodes.set(userId, gainNode)
+    }
+
+    gainNode.gain.setTargetAtTime(volume / 100, ctx.currentTime, 0.01)
+  },
 }))

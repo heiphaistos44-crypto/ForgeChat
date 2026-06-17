@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState, useCallback, KeyboardEvent, useMemo } from 'react'
 import { format, isToday, isYesterday } from 'date-fns'
 import { fr } from 'date-fns/locale'
-import { Pencil, Trash2, SmilePlus, MessagesSquare, Check, X, Pin, CornerUpLeft, ChevronDown, Loader2, Bot, Clock } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
+import { Pencil, Trash2, SmilePlus, MessagesSquare, Check, X, Pin, CornerUpLeft, ChevronDown, Loader2, Bot, Clock, Bookmark } from 'lucide-react'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import { useAuth } from '../../store/auth'
 import { useChat } from '../../store/chat'
 import { renderMarkdown } from '../../utils/markdown'
 import UserPopup from '../UserPopup'
+import ReactionPopup from './ReactionPopup'
+import LinkPreview from './LinkPreview'
 import api from '../../api/client'
+import toast from 'react-hot-toast'
 
 interface Props {
   channelId: string
@@ -36,7 +39,15 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+const URL_REGEX = /https?:\/\/[^\s<>"]+/g
+
+function extractFirstUrl(content: string): string | null {
+  const matches = content.match(URL_REGEX)
+  return matches?.[0] ?? null
+}
+
 interface PopupState { userId: string; x: number; y: number }
+interface ReactionPopupState { messageId: string; emoji: string; x: number; y: number; users: { user_id: string; username: string; avatar?: string }[] }
 
 export default function MessageList({
   channelId,
@@ -148,9 +159,27 @@ export default function MessageList({
     setPopup({ userId, x: e.clientX + 12, y: e.clientY - 40 })
   }
 
+  const [reactionPopup, setReactionPopup] = useState<ReactionPopupState | null>(null)
   const [lightbox, setLightbox] = useState<string | null>(null)
   const isImage = (ct: string) => ct.startsWith('image/')
   const isVideo = (ct: string) => ct.startsWith('video/')
+
+  const saveMessage = useMutation({
+    mutationFn: ({ message_id, channel_id, server_id }: { message_id: string; channel_id: string; server_id: string }) =>
+      api.post('/saved', { message_id, channel_id, server_id }),
+    onSuccess: () => toast.success('Message sauvegardé'),
+    onError: () => toast.error('Erreur lors de la sauvegarde'),
+  })
+
+  const handleReactionHover = async (e: React.MouseEvent, messageId: string, emoji: string) => {
+    try {
+      const res = await api.get(`/reactions?message_id=${messageId}&emoji=${encodeURIComponent(emoji)}`)
+      const users = res.data?.users ?? []
+      setReactionPopup({ messageId, emoji, x: e.clientX, y: e.clientY, users })
+    } catch {
+      // silencieux si l'API échoue
+    }
+  }
 
   return (
     <div className="flex-1 relative flex flex-col overflow-hidden">
@@ -320,6 +349,12 @@ export default function MessageList({
                       </div>
                     ))}
 
+                    {/* Link preview (1 seule, pas si attachments) */}
+                    {msg.content && !msg.attachments?.length && (() => {
+                      const url = extractFirstUrl(msg.content)
+                      return url ? <LinkPreview url={url} /> : null
+                    })()}
+
                     {/* Réactions */}
                     {msg.reactions?.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1.5">
@@ -327,6 +362,8 @@ export default function MessageList({
                           <button
                             key={r.emoji}
                             onClick={() => onAddReaction?.(msg.id, r.emoji)}
+                            onMouseEnter={e => handleReactionHover(e, msg.id, r.emoji)}
+                            onMouseLeave={() => setReactionPopup(null)}
                             className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition
                               ${r.me ? 'bg-fc-accent/20 border-fc-accent text-white' : 'bg-fc-hover border-fc-hover text-fc-muted hover:border-fc-accent'}`}
                           >
@@ -370,6 +407,14 @@ export default function MessageList({
                       </div>
                     )}
                   </div>
+
+                  <button
+                    onClick={() => saveMessage.mutate({ message_id: msg.id, channel_id: channelId, server_id: serverId })}
+                    className="p-1.5 text-fc-muted hover:text-fc-accent rounded hover:bg-fc-hover transition"
+                    title="Sauvegarder"
+                  >
+                    <Bookmark size={14} />
+                  </button>
 
                   {onReply && (
                     <button
@@ -448,6 +493,17 @@ export default function MessageList({
           <ChevronDown size={14} />
           Aller en bas
         </button>
+      )}
+
+      {/* Reaction popup */}
+      {reactionPopup && (
+        <ReactionPopup
+          emoji={reactionPopup.emoji}
+          users={reactionPopup.users}
+          x={reactionPopup.x}
+          y={reactionPopup.y}
+          onClose={() => setReactionPopup(null)}
+        />
       )}
 
       {/* User popup */}

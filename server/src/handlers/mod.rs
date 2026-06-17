@@ -14,3 +14,7 @@ pub mod reads;
 pub mod emojis;
 pub mod bots;
 pub mod server_settings;
+pub mod polls;
+pub mod webhooks;
+pub mod saved;
+pub mod audit;

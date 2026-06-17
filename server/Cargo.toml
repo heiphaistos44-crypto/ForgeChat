@@ -1,6 +1,6 @@
 [package]
 name = "forgechat-server"
-version = "2.1.0"
+version = "2.3.0"
 edition = "2021"
 
 [[bin]]
@@ -33,6 +33,7 @@ base64 = "0.22"
 mime_guess = "2"
 tokio-stream = "0.1"
 lettre = { version = "0.11", default-features = false, features = ["tokio1", "tokio1-rustls-tls", "smtp-transport", "builder"] }
+reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "json"] }
 
 [profile.release]
 opt-level = 3

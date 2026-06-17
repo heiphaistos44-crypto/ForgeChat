@@ -16,6 +16,11 @@ import ChannelPage from './pages/ChannelPage'
 import DMPage from './pages/DMPage'
 import FriendsPage from './pages/FriendsPage'
 import QuickSwitcher from './components/QuickSwitcher'
+import SavedPage from './pages/SavedPage'
+import ExplorePage from './pages/ExplorePage'
+import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
+import { useAudioNotifications } from './hooks/useAudioNotifications'
+import { usePushNotifications, sendNativeNotification } from './hooks/usePushNotifications'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -35,6 +40,9 @@ function AppInner() {
   const initVoiceListeners = useVoice(s => s.initGlobalListeners)
   const nav = useNavigate()
   const [showQuickSwitcher, setShowQuickSwitcher] = React.useState(false)
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = React.useState(false)
+  const { playJoin, playLeave, playMessage, playMention } = useAudioNotifications()
+  const { requestPermission } = usePushNotifications()
 
   useEffect(() => { fetchMe() }, [])
 
@@ -71,17 +79,46 @@ function AppInner() {
     return off
   }, [user?.id])
 
+  // Sons sur events vocaux et mentions
+  useEffect(() => {
+    if (!user) return
+    const offJoin = on('VOICE_USER_JOINED', () => playJoin())
+    const offLeave = on('VOICE_USER_LEFT', () => playLeave())
+    const offMsg = on('MESSAGE_CREATE', (d: any) => {
+      const msg = d.message
+      if (!msg || msg.author_id === user.id) return
+      const content: string = msg.content ?? ''
+      if (content.includes(`@${user.username}`) || content.includes('@everyone') || content.includes('@here')) {
+        playMention()
+        sendNativeNotification(msg.author_username ?? 'Quelqu\'un', { body: content.slice(0, 80) })
+      } else if (!document.hasFocus()) {
+        playMessage()
+      }
+    })
+    return () => { offJoin(); offLeave(); offMsg() }
+  }, [user?.id, playJoin, playLeave, playMessage, playMention])
+
+  // Demander permission notifications au login
+  useEffect(() => {
+    if (user) requestPermission()
+  }, [user?.id])
+
   // Raccourcis clavier globaux
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName
+      const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault()
         setShowQuickSwitcher(q => !q)
       }
-      if (e.key === 'Escape') setShowQuickSwitcher(false)
+      if (e.key === 'Escape') { setShowQuickSwitcher(false); setShowKeyboardShortcuts(false) }
       if ((e.ctrlKey || e.metaKey) && e.key === ',') {
         e.preventDefault()
         nav('/settings')
+      }
+      if (e.key === '?' && !isInput && !e.ctrlKey && !e.metaKey) {
+        setShowKeyboardShortcuts(q => !q)
       }
     }
     window.addEventListener('keydown', handler)
@@ -100,12 +137,15 @@ function AppInner() {
         <Route path="/" element={<AuthGuard><MainLayout /></AuthGuard>}>
           <Route index element={<FriendsPage />} />
           <Route path="friends" element={<FriendsPage />} />
+          <Route path="saved" element={<SavedPage />} />
+          <Route path="explore" element={<ExplorePage />} />
           <Route path="dms/:dmId" element={<DMPage />} />
           <Route path="servers/:serverId" element={<ChannelPage />} />
           <Route path="servers/:serverId/channels/:channelId" element={<ChannelPage />} />
         </Route>
       </Routes>
       {showQuickSwitcher && <QuickSwitcher onClose={() => setShowQuickSwitcher(false)} />}
+      {showKeyboardShortcuts && <KeyboardShortcutsModal onClose={() => setShowKeyboardShortcuts(false)} />}
     </>
   )
 }

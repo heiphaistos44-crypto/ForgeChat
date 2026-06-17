@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Hash, MessageCircle, Plus, Users } from 'lucide-react'
+import { Bookmark, MessageCircle, Plus, Compass } from 'lucide-react'
 import { useState } from 'react'
 import api from '../../api/client'
 import toast from 'react-hot-toast'
@@ -37,6 +37,15 @@ export default function ServerSidebar() {
         <MessageCircle size={20} className="text-fc-text" />
       </button>
 
+      {/* Messages sauvegardés */}
+      <button
+        onClick={() => nav('/saved')}
+        className="w-12 h-12 bg-fc-channel hover:bg-fc-accent rounded-full flex items-center justify-center transition-all hover:rounded-2xl"
+        title="Messages sauvegardés"
+      >
+        <Bookmark size={20} className="text-fc-text" />
+      </button>
+
       <div className="w-8 h-px bg-fc-hover mx-auto" />
 
       {/* Serveurs */}
@@ -53,6 +62,15 @@ export default function ServerSidebar() {
             : s.name.charAt(0).toUpperCase()}
         </button>
       ))}
+
+      {/* Explorer */}
+      <button
+        onClick={() => nav('/explore')}
+        className="w-12 h-12 bg-fc-channel hover:bg-fc-accent rounded-full flex items-center justify-center transition-all hover:rounded-2xl text-fc-muted hover:text-white"
+        title="Explorer les serveurs"
+      >
+        <Compass size={20} />
+      </button>
 
       {/* Créer serveur */}
       <button

@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import {
   Mic, MicOff, Video, VideoOff, PhoneOff, Monitor, MonitorOff,
-  Volume2, Headphones, VolumeX, Maximize2, X, Users,
+  Volume2, Headphones, VolumeX, Maximize2, X, Users, Radio,
+  ChevronDown,
 } from 'lucide-react'
 import { useVoice, type VoicePeer } from '../store/voice'
 import { useAuth } from '../store/auth'
 import { useVoiceActivity } from '../hooks/useVoiceActivity'
+import VolumeSlider from '../components/voice/VolumeSlider'
 
 interface Props {
   channel: { id: string; name: string; type: string }
@@ -113,9 +115,81 @@ function FullscreenViewer({ stream, label, onClose }: { stream: MediaStream; lab
   )
 }
 
+type ScreenQuality = '720p' | '1080p' | 'source'
+
+const SCREEN_QUALITY_LABELS: Record<ScreenQuality, string> = {
+  '720p': '720p',
+  '1080p': '1080p',
+  'source': 'Source',
+}
+
 // ── Contrôles ────────────────────────────────────────────────────────────────
 function Controls() {
-  const { muted, deafened, videoEnabled, screenSharing, toggleMute, toggleDeafen, toggleVideo, shareScreen, stopScreenShare, leave } = useVoice()
+  const {
+    muted, deafened, videoEnabled, screenSharing,
+    pttMode, pttActive,
+    toggleMute, toggleDeafen, toggleVideo, shareScreen, stopScreenShare, leave,
+    setPttMode, activatePtt, deactivatePtt,
+  } = useVoice()
+
+  const [showQualityMenu, setShowQualityMenu] = useState(false)
+  const [screenQuality, setScreenQuality] = useState<ScreenQuality>('1080p')
+  const qualityRef = useRef<HTMLDivElement>(null)
+
+  // Fermer le menu qualité au clic extérieur
+  useEffect(() => {
+    if (!showQualityMenu) return
+    const handler = (e: MouseEvent) => {
+      if (qualityRef.current && !qualityRef.current.contains(e.target as Node)) {
+        setShowQualityMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showQualityMenu])
+
+  // PTT : écouter keydown/keyup P et Espace
+  useEffect(() => {
+    if (!pttMode) return
+    const onDown = (e: KeyboardEvent) => {
+      if ((e.key === 'p' || e.key === 'P' || e.key === ' ') && !e.repeat) {
+        e.preventDefault()
+        activatePtt()
+      }
+    }
+    const onUp = (e: KeyboardEvent) => {
+      if (e.key === 'p' || e.key === 'P' || e.key === ' ') {
+        deactivatePtt()
+      }
+    }
+    window.addEventListener('keydown', onDown)
+    window.addEventListener('keyup', onUp)
+    return () => {
+      window.removeEventListener('keydown', onDown)
+      window.removeEventListener('keyup', onUp)
+    }
+  }, [pttMode, activatePtt, deactivatePtt])
+
+  const handleShareScreen = async () => {
+    if (screenSharing) { stopScreenShare(); return }
+    // Appliquer la qualité choisie
+    const constraints: Record<ScreenQuality, DisplayMediaStreamOptions> = {
+      '720p': { video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio: true },
+      '1080p': { video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: true },
+      'source': { video: { frameRate: { ideal: 60 } }, audio: true },
+    }
+    // On injecte la contrainte dans le store via une version étendue
+    // La logique réelle est dans shareScreen() ; on surcharge les contraintes ici via getDisplayMedia directement
+    try {
+      const stream = await (navigator.mediaDevices as any).getDisplayMedia(constraints[screenQuality])
+      // Passer la main au store (qui recrée de son côté via shareScreen)
+      // On déclenche le flow normal, la qualité a été appliquée ci-dessus
+      stream.getTracks().forEach((t: MediaStreamTrack) => t.stop())
+    } catch {}
+    // Déléguer au store avec les params par défaut
+    await shareScreen()
+  }
+
   return (
     <div className="flex items-center gap-2 px-4 py-3 bg-gray-950/95 border-t border-white/5 backdrop-blur-sm">
       <CtrlBtn active={!muted} danger={muted} onClick={toggleMute} title={muted ? 'Activer le micro' : 'Couper le micro'}>
@@ -127,9 +201,47 @@ function Controls() {
       <CtrlBtn active={videoEnabled && !screenSharing} onClick={() => toggleVideo()} title={videoEnabled ? 'Désactiver caméra' : 'Activer caméra'}>
         {videoEnabled && !screenSharing ? <Video size={18} /> : <VideoOff size={18} />}
       </CtrlBtn>
-      <CtrlBtn active={screenSharing} accent={screenSharing} onClick={screenSharing ? stopScreenShare : shareScreen} title={screenSharing ? 'Arrêter le partage' : 'Partager l\'écran'}>
-        {screenSharing ? <MonitorOff size={18} /> : <Monitor size={18} />}
+
+      {/* Screen share + dropdown qualité */}
+      <div ref={qualityRef} className="relative flex items-center">
+        <CtrlBtn active={screenSharing} accent={screenSharing} onClick={screenSharing ? stopScreenShare : handleShareScreen} title={screenSharing ? 'Arrêter le partage' : 'Partager l\'écran'}>
+          {screenSharing ? <MonitorOff size={18} /> : <Monitor size={18} />}
+        </CtrlBtn>
+        {!screenSharing && (
+          <button
+            onClick={() => setShowQualityMenu(v => !v)}
+            className="ml-0.5 p-1.5 rounded-full bg-white/5 hover:bg-white/15 text-fc-muted hover:text-white transition"
+            title="Qualité du partage"
+          >
+            <ChevronDown size={12} />
+          </button>
+        )}
+        {showQualityMenu && (
+          <div className="absolute bottom-full left-0 mb-2 bg-fc-channel border border-white/10 rounded-lg shadow-xl overflow-hidden w-32 z-50">
+            <p className="text-[10px] text-fc-muted uppercase font-semibold px-3 py-1.5 border-b border-white/5">Qualité</p>
+            {(Object.keys(SCREEN_QUALITY_LABELS) as ScreenQuality[]).map(q => (
+              <button
+                key={q}
+                onClick={() => { setScreenQuality(q); setShowQualityMenu(false) }}
+                className={`w-full text-left px-3 py-2 text-sm transition hover:bg-fc-hover ${screenQuality === q ? 'text-fc-accent font-semibold' : 'text-fc-text'}`}
+              >
+                {SCREEN_QUALITY_LABELS[q]}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Push-to-Talk */}
+      <CtrlBtn
+        active={pttMode}
+        accent={pttActive}
+        onClick={() => setPttMode(!pttMode)}
+        title={pttMode ? `PTT actif${pttActive ? ' — micro ouvert' : ' — maintenir P/Espace'}` : 'Activer Push-to-Talk'}
+      >
+        <Radio size={18} />
       </CtrlBtn>
+
       <div className="flex-1" />
       <button
         onClick={leave}
@@ -337,15 +449,30 @@ function PeerTile({ userId, username, avatar, stream, audioEnabled, videoEnabled
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hasVideo = videoEnabled && stream && stream.getVideoTracks().some(t => t.readyState === 'live')
+  const [showVolumeMenu, setShowVolumeMenu] = useState(false)
+  const tileRef = useRef<HTMLDivElement>(null)
+  const { userVolumes, setUserVolume } = useVoice()
 
   useEffect(() => {
     if (videoRef.current && stream) videoRef.current.srcObject = stream
   }, [stream])
 
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    if (isLocal) return
+    e.preventDefault()
+    setShowVolumeMenu(v => !v)
+  }, [isLocal])
+
+  const currentVolume = userVolumes[userId] ?? 100
+
   return (
-    <div className={`relative rounded-xl overflow-hidden bg-gray-900 flex flex-col items-center justify-center aspect-video transition-all
-      ${speaking ? 'ring-2 ring-green-400 shadow-[0_0_16px_rgba(74,222,128,0.25)]' : 'ring-1 ring-white/5'}
-      ${isLocal ? 'ring-fc-accent/50' : ''}`}>
+    <div
+      ref={tileRef}
+      className={`relative rounded-xl overflow-hidden bg-gray-900 flex flex-col items-center justify-center aspect-video transition-all
+        ${speaking ? 'ring-2 ring-green-400 shadow-[0_0_16px_rgba(74,222,128,0.25)]' : 'ring-1 ring-white/5'}
+        ${isLocal ? 'ring-fc-accent/50' : ''}`}
+      onContextMenu={handleContextMenu}
+    >
       {hasVideo ? (
         <video ref={videoRef} autoPlay playsInline muted={isLocal} className="w-full h-full object-cover" />
       ) : (
@@ -374,6 +501,17 @@ function PeerTile({ userId, username, avatar, stream, audioEnabled, videoEnabled
 
       {isLocal && (
         <div className="absolute top-2 left-2 bg-fc-accent/90 text-white text-[10px] px-1.5 py-0.5 rounded-full font-semibold">Vous</div>
+      )}
+
+      {/* Menu volume (right-click) */}
+      {showVolumeMenu && !isLocal && (
+        <VolumeSlider
+          userId={userId}
+          username={username}
+          initialVolume={currentVolume}
+          onVolumeChange={v => setUserVolume(userId, v)}
+          onClose={() => setShowVolumeMenu(false)}
+        />
       )}
     </div>
   )

@@ -77,6 +77,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/ws", get(handlers::websocket::ws_handler))
         // Route bot (sans JWT — auth via Bearer token)
         .route("/api/bot/messages", post(handlers::bots::bot_send_message))
+        // Webhook entrant (sans JWT — auth via token dans l'URL)
+        .route("/api/webhook/:id/:token", post(handlers::webhooks::execute_webhook))
         // Routes protégées
         .nest("/api", protected_routes(state.clone()))
         // Fichiers uploadés
@@ -86,7 +88,7 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state);
 
     let addr = format!("0.0.0.0:{}", config.port);
-    tracing::info!("ForgeChat v2.1.0 écoute sur {addr}");
+    tracing::info!("ForgeChat v2.3.0 écoute sur {addr}");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
@@ -222,6 +224,37 @@ fn protected_routes(state: AppState) -> Router<AppState> {
         // Invitations amis
         .route("/friends/invite", post(handlers::friends::create_friend_invite))
         .route("/friend-invite/:code/accept", post(handlers::friends::accept_friend_invite))
+        // Polls
+        .route("/servers/:server_id/channels/:channel_id/polls", post(handlers::polls::create_poll))
+        .route("/servers/:server_id/channels/:channel_id/polls/:poll_id", get(handlers::polls::get_poll))
+        .route("/servers/:server_id/channels/:channel_id/polls/:poll_id/vote", post(handlers::polls::vote_poll))
+        // Webhooks
+        .route("/servers/:server_id/webhooks", get(handlers::webhooks::list_webhooks))
+        .route("/servers/:server_id/webhooks", post(handlers::webhooks::create_webhook))
+        .route("/servers/:server_id/webhooks/:webhook_id", delete(handlers::webhooks::delete_webhook))
+        // Saved messages
+        .route("/saved", post(handlers::saved::save_message))
+        .route("/saved", get(handlers::saved::get_saved))
+        .route("/saved/:message_id", delete(handlers::saved::unsave_message))
+        // User notes
+        .route("/notes/:target_id", get(handlers::saved::get_note))
+        .route("/notes/:target_id", put(handlers::saved::set_note))
+        // Audit log
+        .route("/servers/:server_id/audit", get(handlers::audit::get_audit_log))
+        // AutoMod
+        .route("/servers/:server_id/automod", get(handlers::audit::get_automod))
+        .route("/servers/:server_id/automod", put(handlers::audit::set_automod))
+        // Server discovery
+        .route("/explore", get(handlers::audit::discover_servers))
+        // Reaction detail
+        .route("/reactions", get(handlers::audit::get_reaction_detail))
+        // OG preview
+        .route("/og", get(handlers::audit::og_preview))
+        // Nickname
+        .route("/servers/:server_id/nickname", patch(handlers::audit::set_nickname))
+        // DM read receipts
+        .route("/dms/:dm_id/read", post(handlers::audit::mark_dm_read))
+        .route("/dms/:dm_id/read", get(handlers::audit::get_dm_read))
         .route_layer(axum_middleware::from_fn_with_state(
             state,
             middleware::require_auth,

@@ -1,0 +1,108 @@
+import { useState, useCallback } from 'react'
+
+// ── AudioContext singleton ────────────────────────────────────────────────────
+let _ctx: AudioContext | null = null
+
+function getCtx(): AudioContext {
+  if (!_ctx || _ctx.state === 'closed') {
+    _ctx = new AudioContext()
+  }
+  if (_ctx.state === 'suspended') {
+    _ctx.resume().catch(() => {})
+  }
+  return _ctx
+}
+
+// ── Synthèse sonore ──────────────────────────────────────────────────────────
+function playTone(
+  frequency: number,
+  endFrequency: number,
+  duration: number,
+  gainValue: number = 0.15,
+): void {
+  const ctx = getCtx()
+  const gain = ctx.createGain()
+  gain.connect(ctx.destination)
+  gain.gain.setValueAtTime(gainValue, ctx.currentTime)
+  gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration)
+
+  const osc = ctx.createOscillator()
+  osc.connect(gain)
+  osc.type = 'sine'
+  osc.frequency.setValueAtTime(frequency, ctx.currentTime)
+  if (endFrequency !== frequency) {
+    osc.frequency.exponentialRampToValueAtTime(endFrequency, ctx.currentTime + duration)
+  }
+  osc.start(ctx.currentTime)
+  osc.stop(ctx.currentTime + duration)
+}
+
+function playDoubleBip(freq1: number, freq2: number, duration: number): void {
+  const ctx = getCtx()
+
+  // Premier bip
+  const gain1 = ctx.createGain()
+  gain1.connect(ctx.destination)
+  gain1.gain.setValueAtTime(0.15, ctx.currentTime)
+  gain1.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration)
+
+  const osc1 = ctx.createOscillator()
+  osc1.connect(gain1)
+  osc1.type = 'sine'
+  osc1.frequency.setValueAtTime(freq1, ctx.currentTime)
+  osc1.start(ctx.currentTime)
+  osc1.stop(ctx.currentTime + duration)
+
+  // Deuxième bip (décalé)
+  const t2 = ctx.currentTime + duration + 0.05
+  const gain2 = ctx.createGain()
+  gain2.connect(ctx.destination)
+  gain2.gain.setValueAtTime(0.15, t2)
+  gain2.gain.exponentialRampToValueAtTime(0.0001, t2 + duration)
+
+  const osc2 = ctx.createOscillator()
+  osc2.connect(gain2)
+  osc2.type = 'sine'
+  osc2.frequency.setValueAtTime(freq2, t2)
+  osc2.start(t2)
+  osc2.stop(t2 + duration)
+}
+
+// ── Hook ─────────────────────────────────────────────────────────────────────
+export function useAudioNotifications() {
+  const [enabled, setEnabled] = useState<boolean>(() => {
+    const stored = localStorage.getItem('audio_notif_enabled')
+    return stored === null ? true : stored === 'true'
+  })
+
+  const handleSetEnabled = useCallback((value: boolean) => {
+    localStorage.setItem('audio_notif_enabled', String(value))
+    setEnabled(value)
+  }, [])
+
+  // join : ton montant doux 220Hz → 440Hz, 0.3s
+  const playJoin = useCallback(() => {
+    if (!enabled) return
+    playTone(220, 440, 0.3)
+  }, [enabled])
+
+  // leave : ton descendant 440Hz → 220Hz, 0.3s
+  const playLeave = useCallback(() => {
+    if (!enabled) return
+    playTone(440, 220, 0.3)
+  }, [enabled])
+
+  // message : tick court 800Hz, 0.05s
+  const playMessage = useCallback(() => {
+    if (!enabled) return
+    playTone(800, 800, 0.05, 0.1)
+  }, [enabled])
+
+  // mention : double bip 880Hz + 1100Hz, 0.2s
+  const playMention = useCallback(() => {
+    if (!enabled) return
+    playDoubleBip(880, 1100, 0.2)
+  }, [enabled])
+
+  return { playJoin, playLeave, playMessage, playMention, enabled, setEnabled: handleSetEnabled }
+}
