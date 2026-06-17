@@ -1,4 +1,6 @@
 use axum::{extract::{Path, State}, Extension, Json};
+use chrono::Utc;
+use rand::Rng;
 use uuid::Uuid;
 
 use crate::{
@@ -230,6 +232,128 @@ pub async fn get_dm_messages(
 
     result.reverse();
     Ok(Json(result))
+}
+
+// ─── Invitations amis par lien ───────────────────────────────────────────────
+
+pub async fn create_friend_invite(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<serde_json::Value>> {
+    let code: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(8)
+        .map(char::from)
+        .collect();
+
+    let expires_at = Utc::now() + chrono::Duration::days(7);
+
+    sqlx::query(
+        "INSERT INTO friend_invites (code, user_id, expires_at) VALUES ($1, $2, $3)",
+    )
+    .bind(&code)
+    .bind(claims.sub)
+    .bind(expires_at)
+    .execute(&state.db)
+    .await?;
+
+    let url = format!("{}/friend-invite/{}", "https://forgechat.heiphaistos.org", code);
+    Ok(Json(serde_json::json!({ "code": code, "url": url })))
+}
+
+pub async fn get_friend_invite(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+) -> Result<Json<serde_json::Value>> {
+    let row = sqlx::query(
+        "SELECT fi.user_id, fi.expires_at, fi.uses,
+                u.username, u.discriminator, u.avatar, u.status
+         FROM friend_invites fi
+         JOIN users u ON u.id = fi.user_id
+         WHERE fi.code=$1",
+    )
+    .bind(&code)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Invitation introuvable".into()))?;
+
+    use sqlx::Row;
+    let expires_at: Option<chrono::DateTime<Utc>> = row.get("expires_at");
+    if let Some(exp) = expires_at {
+        if exp < Utc::now() {
+            return Err(AppError::BadRequest("Invitation expirée".into()));
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "code": code,
+        "user": {
+            "id": row.get::<Uuid, _>("user_id"),
+            "username": row.get::<String, _>("username"),
+            "discriminator": row.get::<String, _>("discriminator"),
+            "avatar": row.get::<Option<String>, _>("avatar"),
+            "status": row.get::<String, _>("status"),
+        }
+    })))
+}
+
+pub async fn accept_friend_invite(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(code): Path<String>,
+) -> Result<Json<serde_json::Value>> {
+    let row = sqlx::query(
+        "SELECT user_id, expires_at FROM friend_invites WHERE code=$1",
+    )
+    .bind(&code)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Invitation introuvable".into()))?;
+
+    use sqlx::Row;
+    let inviter_id: Uuid = row.get("user_id");
+
+    if inviter_id == claims.sub {
+        return Err(AppError::BadRequest(
+            "Tu ne peux pas accepter ta propre invitation".into(),
+        ));
+    }
+
+    let expires_at: Option<chrono::DateTime<Utc>> = row.get("expires_at");
+    if let Some(exp) = expires_at {
+        if exp < Utc::now() {
+            return Err(AppError::BadRequest("Invitation expirée".into()));
+        }
+    }
+
+    let already = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM friendships WHERE
+         (user_id=$1 AND friend_id=$2) OR (user_id=$2 AND friend_id=$1))",
+    )
+    .bind(inviter_id)
+    .bind(claims.sub)
+    .fetch_one(&state.db)
+    .await?;
+
+    if !already {
+        sqlx::query(
+            "INSERT INTO friendships (user_id, friend_id, status) VALUES ($1, $2, 'accepted')",
+        )
+        .bind(inviter_id)
+        .bind(claims.sub)
+        .execute(&state.db)
+        .await?;
+
+        sqlx::query("UPDATE friend_invites SET uses = uses + 1 WHERE code=$1")
+            .bind(&code)
+            .execute(&state.db)
+            .await?;
+
+        let event = serde_json::json!({ "type": "FRIEND_ACCEPTED", "user_id": claims.sub });
+        state.broadcast_to_user(inviter_id, event.to_string()).await;
+    }
+
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 pub async fn send_dm(

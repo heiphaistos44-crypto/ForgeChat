@@ -1,4 +1,5 @@
 mod config;
+mod email;
 mod error;
 mod handlers;
 mod middleware;
@@ -66,9 +67,12 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         // Auth publique
         .route("/api/auth/register", post(handlers::auth::register))
+        .route("/api/auth/verify-email", post(handlers::auth::verify_email))
         .route("/api/auth/login", post(handlers::auth::login))
         .route("/api/auth/refresh", post(handlers::auth::refresh))
         .route("/api/invites/:code", get(handlers::invites::get_invite_info))
+        // Invitation amis (lecture publique — affiche le profil de l'invitant)
+        .route("/api/friend-invite/:code", get(handlers::friends::get_friend_invite))
         // WebSocket
         .route("/ws", get(handlers::websocket::ws_handler))
         // Route bot (sans JWT — auth via Bearer token)
@@ -82,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state);
 
     let addr = format!("0.0.0.0:{}", config.port);
-    tracing::info!("ForgeChat v2.0.0 écoute sur {addr}");
+    tracing::info!("ForgeChat v2.1.0 écoute sur {addr}");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
@@ -204,6 +208,20 @@ fn protected_routes(state: AppState) -> Router<AppState> {
         .route("/servers/:server_id/bots", post(handlers::bots::create_bot))
         .route("/servers/:server_id/bots/:bot_id", delete(handlers::bots::delete_bot))
         .route("/servers/:server_id/bots/:bot_id/token", post(handlers::bots::regenerate_token))
+        // Bans
+        .route("/servers/:server_id/bans", get(handlers::server_settings::list_bans))
+        .route("/servers/:server_id/bans/:user_id", delete(handlers::server_settings::unban_member))
+        // Tags de clan
+        .route("/servers/:server_id/tags", get(handlers::server_settings::list_tags))
+        .route("/servers/:server_id/tags", post(handlers::server_settings::create_tag))
+        .route("/servers/:server_id/tags/:tag_id", delete(handlers::server_settings::delete_tag))
+        .route("/servers/:server_id/members/:user_id/tags/:tag_id", put(handlers::server_settings::assign_tag))
+        .route("/servers/:server_id/members/:user_id/tags/:tag_id", delete(handlers::server_settings::remove_tag))
+        // Membres détaillés (avec rôles + tags)
+        .route("/servers/:server_id/members/detailed", get(handlers::server_settings::get_members_detailed))
+        // Invitations amis
+        .route("/friends/invite", post(handlers::friends::create_friend_invite))
+        .route("/friend-invite/:code/accept", post(handlers::friends::accept_friend_invite))
         .route_layer(axum_middleware::from_fn_with_state(
             state,
             middleware::require_auth,

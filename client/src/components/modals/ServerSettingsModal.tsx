@@ -1,9 +1,13 @@
 import { useState, useRef } from 'react'
-import { X, Trash2, Upload, SmilePlus, Bot, Plus, RefreshCw, Copy, Check } from 'lucide-react'
+import { X, Trash2, Upload, SmilePlus, Bot, Plus, RefreshCw, Copy, Check, Shield, Users, Ban, Tag } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import api from '../../api/client'
 import toast from 'react-hot-toast'
+import RolesTab from './RolesTab'
+import MembersTab from './MembersTab'
+import BansTab from './BansTab'
+import TagsTab from './TagsTab'
 
 interface Server {
   id: string
@@ -19,7 +23,7 @@ interface Props {
   onClose: () => void
 }
 
-type Tab = 'general' | 'roles' | 'members' | 'bans' | 'emojis' | 'bots'
+type Tab = 'general' | 'roles' | 'members' | 'bans' | 'tags' | 'emojis' | 'bots'
 
 export default function ServerSettingsModal({ server, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('general')
@@ -146,11 +150,12 @@ export default function ServerSettingsModal({ server, onClose }: Props) {
 
   const tabs = [
     { id: 'general' as Tab, label: 'Général' },
-    { id: 'emojis' as Tab, label: 'Emojis' },
-    { id: 'bots' as Tab, label: 'Bots' },
-    { id: 'roles' as Tab, label: 'Rôles' },
-    { id: 'members' as Tab, label: 'Membres' },
-    { id: 'bans' as Tab, label: 'Bans' },
+    { id: 'roles' as Tab, label: 'Rôles', icon: Shield },
+    { id: 'members' as Tab, label: 'Membres', icon: Users },
+    { id: 'tags' as Tab, label: 'Tags clan', icon: Tag },
+    { id: 'bans' as Tab, label: 'Bans', icon: Ban },
+    { id: 'emojis' as Tab, label: 'Emojis', icon: SmilePlus },
+    { id: 'bots' as Tab, label: 'Bots', icon: Bot },
   ]
 
   return (
@@ -161,14 +166,18 @@ export default function ServerSettingsModal({ server, onClose }: Props) {
           <div className="text-xs font-semibold text-fc-muted uppercase tracking-wide mb-2 px-2 truncate">
             {server.name}
           </div>
-          {tabs.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`w-full text-left px-2 py-1.5 rounded text-sm transition mb-0.5
-                ${tab === t.id ? 'bg-fc-hover text-white' : 'text-fc-muted hover:text-white hover:bg-fc-hover/50'}`}
-            >
-              {t.label}
-            </button>
-          ))}
+          {tabs.map(t => {
+            const Icon = (t as any).icon
+            return (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`w-full text-left px-2 py-1.5 rounded text-sm transition mb-0.5 flex items-center gap-2
+                  ${tab === t.id ? 'bg-fc-hover text-white' : 'text-fc-muted hover:text-white hover:bg-fc-hover/50'}`}
+              >
+                {Icon && <Icon size={13} />}
+                {t.label}
+              </button>
+            )
+          })}
           <div className="mt-4 border-t border-fc-hover pt-4">
             <button onClick={() => deleteServer.mutate()} disabled={deleteConfirm !== server.name}
               className="w-full text-left px-2 py-1.5 rounded text-sm text-fc-red hover:bg-fc-red/10 transition flex items-center gap-2 disabled:opacity-40"
@@ -421,15 +430,10 @@ export default function ServerSettingsModal({ server, onClose }: Props) {
               </div>
             )}
 
-            {tab === 'roles' && (
-              <div className="text-fc-muted text-sm">Gestion des rôles (à venir dans v2.1)</div>
-            )}
-            {tab === 'members' && (
-              <div className="text-fc-muted text-sm">{server.member_count} membre(s) · Gestion avancée (à venir dans v2.1)</div>
-            )}
-            {tab === 'bans' && (
-              <div className="text-fc-muted text-sm">Aucun ban actif.</div>
-            )}
+            {tab === 'roles' && <RolesTab serverId={server.id} />}
+            {tab === 'members' && <MembersTab serverId={server.id} />}
+            {tab === 'bans' && <BansTab serverId={server.id} />}
+            {tab === 'tags' && <TagsTab serverId={server.id} />}
           </div>
         </div>
       </div>

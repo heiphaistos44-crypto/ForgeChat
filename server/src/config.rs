@@ -9,6 +9,12 @@ pub struct Config {
     pub upload_dir: String,
     pub max_upload_size: u64,
     pub frontend_url: String,
+    // SMTP (optionnel — si absent, les emails sont loggés en console)
+    pub smtp_host: Option<String>,
+    pub smtp_port: u16,
+    pub smtp_user: Option<String>,
+    pub smtp_pass: Option<String>,
+    pub smtp_from: String,
 }
 
 impl Config {
@@ -27,6 +33,15 @@ impl Config {
                 .parse()?,
             frontend_url: env::var("FRONTEND_URL")
                 .unwrap_or_else(|_| "http://localhost:5173".into()),
+            smtp_host: env::var("SMTP_HOST").ok(),
+            smtp_port: env::var("SMTP_PORT")
+                .unwrap_or_else(|_| "587".into())
+                .parse()
+                .unwrap_or(587),
+            smtp_user: env::var("SMTP_USER").ok(),
+            smtp_pass: env::var("SMTP_PASS").ok(),
+            smtp_from: env::var("SMTP_FROM")
+                .unwrap_or_else(|_| "noreply@forgechat.heiphaistos.org".into()),
         })
     }
 }

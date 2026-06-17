@@ -36,10 +36,8 @@ export const useAuth = create<AuthState>()(
     },
 
     register: async (username, email, password) => {
-      const { data } = await api.post('/auth/register', { username, email, password })
-      localStorage.setItem('access_token', data.access_token)
-      localStorage.setItem('refresh_token', data.refresh_token)
-      set(s => { s.user = data.user })
+      // Retourne { pending: true, email } — la vérification se fait dans VerifyEmailPage
+      await api.post('/auth/register', { username, email, password })
     },
 
     logout: async () => {

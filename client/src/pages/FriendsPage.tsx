@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { UserPlus, MessageCircle, Check, X } from 'lucide-react'
+import { UserPlus, MessageCircle, Check, X, Link, Copy } from 'lucide-react'
 import api from '../api/client'
 import toast from 'react-hot-toast'
 import { useNavigate } from 'react-router-dom'
@@ -8,8 +8,23 @@ import { useNavigate } from 'react-router-dom'
 export default function FriendsPage() {
   const [tab, setTab] = useState<'all' | 'pending' | 'add'>('all')
   const [addInput, setAddInput] = useState('')
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
   const qc = useQueryClient()
   const nav = useNavigate()
+
+  const createInvite = useMutation({
+    mutationFn: () => api.post('/friends/invite').then(r => r.data),
+    onSuccess: (data) => setInviteUrl(data.url),
+    onError: () => toast.error('Erreur lors de la création du lien'),
+  })
+
+  const copyInviteUrl = () => {
+    if (!inviteUrl) return
+    navigator.clipboard.writeText(inviteUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   const { data: friends = [] } = useQuery({
     queryKey: ['friends'],
@@ -64,23 +79,62 @@ export default function FriendsPage() {
 
       <div className="flex-1 overflow-y-auto p-4">
         {tab === 'add' && (
-          <div className="max-w-lg">
-            <h3 className="font-semibold text-white mb-1">Ajouter un ami</h3>
-            <p className="text-fc-muted text-sm mb-3">Entre l'ID utilisateur pour envoyer une demande.</p>
-            <div className="flex gap-2">
-              <input
-                value={addInput}
-                onChange={e => setAddInput(e.target.value)}
-                placeholder="ID utilisateur (UUID)"
-                className="flex-1 px-3 py-2 bg-fc-input rounded text-white outline-none focus:ring-2 focus:ring-fc-accent text-sm"
-                onKeyDown={e => e.key === 'Enter' && addInput && sendRequest.mutate(addInput)}
-              />
-              <button
-                onClick={() => addInput && sendRequest.mutate(addInput)}
-                className="px-4 py-2 bg-fc-accent hover:bg-indigo-500 text-white rounded text-sm transition"
-              >
-                Envoyer
-              </button>
+          <div className="max-w-lg space-y-6">
+            {/* Invitation par lien */}
+            <div>
+              <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
+                <Link size={16} className="text-fc-accent" />
+                Inviter par lien
+              </h3>
+              <p className="text-fc-muted text-sm mb-3">
+                Génère un lien unique valable 7 jours. Toute personne qui clique devient ton ami directement.
+              </p>
+              {inviteUrl ? (
+                <div className="flex gap-2 items-center">
+                  <input
+                    readOnly
+                    value={inviteUrl}
+                    className="flex-1 px-3 py-2 bg-fc-input rounded text-white text-sm outline-none"
+                  />
+                  <button
+                    onClick={copyInviteUrl}
+                    className={`px-3 py-2 rounded text-sm font-medium transition flex items-center gap-1.5
+                      ${copied ? 'bg-green-600 text-white' : 'bg-fc-accent hover:bg-indigo-500 text-white'}`}
+                  >
+                    <Copy size={14} />
+                    {copied ? 'Copié !' : 'Copier'}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => createInvite.mutate()}
+                  disabled={createInvite.isPending}
+                  className="flex items-center gap-2 px-4 py-2 bg-fc-accent hover:bg-indigo-500 text-white rounded text-sm transition disabled:opacity-50"
+                >
+                  <Link size={14} />
+                  {createInvite.isPending ? 'Génération...' : 'Générer un lien d\'invitation'}
+                </button>
+              )}
+            </div>
+
+            <div className="border-t border-fc-hover pt-4">
+              <h3 className="font-semibold text-white mb-1">Ajouter par ID</h3>
+              <p className="text-fc-muted text-sm mb-3">Entre l'ID utilisateur pour envoyer une demande.</p>
+              <div className="flex gap-2">
+                <input
+                  value={addInput}
+                  onChange={e => setAddInput(e.target.value)}
+                  placeholder="ID utilisateur (UUID)"
+                  className="flex-1 px-3 py-2 bg-fc-input rounded text-white outline-none focus:ring-2 focus:ring-fc-accent text-sm"
+                  onKeyDown={e => e.key === 'Enter' && addInput && sendRequest.mutate(addInput)}
+                />
+                <button
+                  onClick={() => addInput && sendRequest.mutate(addInput)}
+                  className="px-4 py-2 bg-fc-accent hover:bg-indigo-500 text-white rounded text-sm transition"
+                >
+                  Envoyer
+                </button>
+              </div>
             </div>
           </div>
         )}

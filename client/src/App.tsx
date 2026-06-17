@@ -6,7 +6,9 @@ import { usePresence } from './store/presence'
 import { useUnread } from './store/unread'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
+import VerifyEmailPage from './pages/VerifyEmailPage'
 import InvitePage from './pages/InvitePage'
+import FriendInvitePage from './pages/FriendInvitePage'
 import SettingsPage from './pages/SettingsPage'
 import MainLayout from './components/layout/MainLayout'
 import ChannelPage from './pages/ChannelPage'
@@ -82,7 +84,9 @@ function AppInner() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/invite/:code" element={<InvitePage />} />
+        <Route path="/friend-invite/:code" element={<FriendInvitePage />} />
         <Route path="/settings" element={<AuthGuard><SettingsPage /></AuthGuard>} />
         <Route path="/" element={<AuthGuard><MainLayout /></AuthGuard>}>
           <Route index element={<FriendsPage />} />

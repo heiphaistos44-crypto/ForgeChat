@@ -77,3 +77,15 @@ pub struct UpdateProfileRequest {
     pub custom_status: Option<String>,
     pub status: Option<String>,
 }
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct PendingRegistration {
+    pub id: Uuid,
+    pub email: String,
+    pub username: String,
+    pub password_hash: String,
+    pub discriminator: String,
+    pub code: String,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}

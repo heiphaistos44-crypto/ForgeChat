@@ -7,14 +7,14 @@ use uuid::Uuid;
 use crate::{
     error::{AppError, Result},
     middleware::auth::create_token,
-    models::user::{AuthResponse, LoginRequest, RegisterRequest, UserPublic},
+    models::user::{AuthResponse, LoginRequest, PendingRegistration, RegisterRequest, UserPublic},
     state::AppState,
 };
 
 pub async fn register(
     State(state): State<AppState>,
     Json(body): Json<RegisterRequest>,
-) -> Result<Json<AuthResponse>> {
+) -> Result<Json<serde_json::Value>> {
     if body.username.len() < 2 || body.username.len() > 32 {
         return Err(AppError::BadRequest("Nom d'utilisateur 2-32 chars".into()));
     }
@@ -23,8 +23,9 @@ pub async fn register(
     }
 
     let email_lower = body.email.to_lowercase();
+
     let exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM users WHERE email=$1)"
+        "SELECT EXISTS(SELECT 1 FROM users WHERE email=$1)",
     )
     .bind(&email_lower)
     .fetch_one(&state.db)
@@ -38,16 +39,82 @@ pub async fn register(
     let password_hash = hash(&body.password, DEFAULT_COST)
         .map_err(|e| AppError::Internal(e.into()))?;
 
-    let user = sqlx::query_as::<_, crate::models::user::User>(
-        "INSERT INTO users (username, discriminator, email, password_hash)
-         VALUES ($1, $2, $3, $4) RETURNING *"
+    let code: String = format!("{:04}", rand::thread_rng().gen_range(0..=9999));
+    let expires_at = Utc::now() + chrono::Duration::minutes(15);
+
+    sqlx::query(
+        "INSERT INTO pending_registrations (email, username, password_hash, discriminator, code, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (email) DO UPDATE
+           SET username=$2, password_hash=$3, discriminator=$4, code=$5, expires_at=$6, created_at=NOW()",
     )
-    .bind(&body.username)
-    .bind(&discriminator)
     .bind(&email_lower)
+    .bind(&body.username)
     .bind(&password_hash)
+    .bind(&discriminator)
+    .bind(&code)
+    .bind(expires_at)
+    .execute(&state.db)
+    .await?;
+
+    if let Err(e) = crate::email::send_verification_email(&state.config, &email_lower, &code).await
+    {
+        tracing::error!("Erreur envoi email vérification : {}", e);
+    }
+
+    Ok(Json(serde_json::json!({ "pending": true, "email": email_lower })))
+}
+
+pub async fn verify_email(
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<AuthResponse>> {
+    let email = body["email"]
+        .as_str()
+        .map(|s| s.to_lowercase())
+        .ok_or_else(|| AppError::BadRequest("email requis".into()))?;
+
+    let code = body["code"]
+        .as_str()
+        .ok_or_else(|| AppError::BadRequest("code requis".into()))?;
+
+    let pending = sqlx::query_as::<_, PendingRegistration>(
+        "SELECT * FROM pending_registrations WHERE email=$1",
+    )
+    .bind(&email)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::BadRequest("Aucune inscription en attente pour cet email".into()))?;
+
+    if pending.expires_at < Utc::now() {
+        sqlx::query("DELETE FROM pending_registrations WHERE email=$1")
+            .bind(&email)
+            .execute(&state.db)
+            .await?;
+        return Err(AppError::BadRequest(
+            "Code expiré, recommence l'inscription".into(),
+        ));
+    }
+
+    if pending.code != code {
+        return Err(AppError::BadRequest("Code incorrect".into()));
+    }
+
+    let user = sqlx::query_as::<_, crate::models::user::User>(
+        "INSERT INTO users (username, discriminator, email, password_hash, is_verified)
+         VALUES ($1, $2, $3, $4, true) RETURNING *",
+    )
+    .bind(&pending.username)
+    .bind(&pending.discriminator)
+    .bind(&pending.email)
+    .bind(&pending.password_hash)
     .fetch_one(&state.db)
     .await?;
+
+    sqlx::query("DELETE FROM pending_registrations WHERE email=$1")
+        .bind(&email)
+        .execute(&state.db)
+        .await?;
 
     let access_token = create_token(user.id, &state.config.jwt_secret)
         .map_err(|e| AppError::Internal(e))?;
@@ -66,7 +133,7 @@ pub async fn login(
     Json(body): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>> {
     let user = sqlx::query_as::<_, crate::models::user::User>(
-        "SELECT * FROM users WHERE email=$1"
+        "SELECT * FROM users WHERE email=$1",
     )
     .bind(body.email.to_lowercase())
     .fetch_optional(&state.db)
@@ -79,7 +146,6 @@ pub async fn login(
         return Err(AppError::Unauthorized);
     }
 
-    // Mettre à jour le statut online
     sqlx::query("UPDATE users SET status='online', updated_at=NOW() WHERE id=$1")
         .bind(user.id)
         .execute(&state.db)
@@ -107,7 +173,7 @@ pub async fn refresh(
 
     let token_hash = hash_token(token);
     let row = sqlx::query_as::<_, (Uuid, chrono::DateTime<Utc>)>(
-        "SELECT user_id, expires_at FROM refresh_tokens WHERE token_hash=$1"
+        "SELECT user_id, expires_at FROM refresh_tokens WHERE token_hash=$1",
     )
     .bind(&token_hash)
     .fetch_optional(&state.db)
@@ -129,9 +195,11 @@ pub async fn change_password(
     axum::Extension(claims): axum::Extension<crate::middleware::auth::Claims>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>> {
-    let old_pw = body["old_password"].as_str()
+    let old_pw = body["old_password"]
+        .as_str()
         .ok_or_else(|| AppError::BadRequest("old_password requis".into()))?;
-    let new_pw = body["new_password"].as_str()
+    let new_pw = body["new_password"]
+        .as_str()
         .ok_or_else(|| AppError::BadRequest("new_password requis".into()))?;
 
     if new_pw.len() < 8 {
@@ -139,18 +207,20 @@ pub async fn change_password(
     }
 
     let pw_hash = sqlx::query_scalar::<_, String>(
-        "SELECT password_hash FROM users WHERE id=$1"
+        "SELECT password_hash FROM users WHERE id=$1",
     )
     .bind(claims.sub)
     .fetch_one(&state.db)
     .await?;
 
     if !verify(old_pw, &pw_hash).unwrap_or(false) {
-        return Err(AppError::BadRequest("Mot de passe actuel incorrect".into()));
+        return Err(AppError::BadRequest(
+            "Mot de passe actuel incorrect".into(),
+        ));
     }
 
-    let new_hash = hash(new_pw, DEFAULT_COST)
-        .map_err(|e| AppError::Internal(e.into()))?;
+    let new_hash =
+        hash(new_pw, DEFAULT_COST).map_err(|e| AppError::Internal(e.into()))?;
 
     sqlx::query("UPDATE users SET password_hash=$2, updated_at=NOW() WHERE id=$1")
         .bind(claims.sub)
@@ -182,7 +252,6 @@ pub async fn logout(
 }
 
 fn generate_refresh_token() -> String {
-    use rand::Rng;
     let bytes: Vec<u8> = rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
         .take(64)
@@ -204,15 +273,11 @@ fn ring_or_simple_hash(data: &[u8]) -> Vec<u8> {
     hasher.finish().to_le_bytes().to_vec()
 }
 
-async fn store_refresh_token(
-    state: &AppState,
-    user_id: Uuid,
-    token: &str,
-) -> Result<()> {
+async fn store_refresh_token(state: &AppState, user_id: Uuid, token: &str) -> Result<()> {
     let token_hash = hash_token(token);
     let expires_at = Utc::now() + chrono::Duration::days(30);
     sqlx::query(
-        "INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)"
+        "INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)",
     )
     .bind(user_id)
     .bind(&token_hash)
