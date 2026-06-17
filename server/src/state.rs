@@ -1,5 +1,6 @@
 use std::{collections::{HashMap, HashSet}, sync::Arc};
 use redis::aio::MultiplexedConnection;
+use serde::Serialize;
 use sqlx::PgPool;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use uuid::Uuid;
@@ -8,6 +9,15 @@ use crate::config::Config;
 
 pub type WsSender = broadcast::Sender<String>;
 pub type ClientMap = Arc<RwLock<HashMap<Uuid, WsSender>>>;
+
+#[derive(Clone, Serialize, Debug)]
+pub struct VoiceStateData {
+    pub channel_id: Uuid,
+    pub muted: bool,
+    pub deafened: bool,
+    pub video: bool,
+    pub screen: bool,
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -20,6 +30,8 @@ pub struct AppState {
     pub voice_rooms: Arc<RwLock<HashMap<Uuid, HashSet<Uuid>>>>,
     // Utilisateur courant dans quel salon : user_id → channel_id
     pub user_voice: Arc<RwLock<HashMap<Uuid, Uuid>>>,
+    // État vocal par utilisateur : mute, vidéo, screen share
+    pub voice_states: Arc<RwLock<HashMap<Uuid, VoiceStateData>>>,
 }
 
 impl AppState {
@@ -36,6 +48,7 @@ impl AppState {
             channel_subs: Arc::new(RwLock::new(HashMap::new())),
             voice_rooms: Arc::new(RwLock::new(HashMap::new())),
             user_voice: Arc::new(RwLock::new(HashMap::new())),
+            voice_states: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -93,6 +106,8 @@ impl AppState {
         let mut user_voice = self.user_voice.write().await;
         let channel_id = user_voice.remove(&user_id)?;
         drop(user_voice);
+
+        self.voice_states.write().await.remove(&user_id);
 
         let mut rooms = self.voice_rooms.write().await;
         if let Some(room) = rooms.get_mut(&channel_id) {

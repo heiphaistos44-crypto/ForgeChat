@@ -2,12 +2,14 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   ChevronDown, Hash, Plus, Volume2, UserPlus, Settings,
-  Video, Megaphone, MessagesSquare, Radio, ChevronRight
+  Video, Megaphone, MessagesSquare, Radio, ChevronRight,
+  Mic, MicOff, Monitor,
 } from 'lucide-react'
 import { useState } from 'react'
 import api from '../../api/client'
 import { usePresence } from '../../store/presence'
 import { useUnread } from '../../store/unread'
+import { useVoice } from '../../store/voice'
 import CreateChannelModal from '../modals/CreateChannelModal'
 import InviteModal from '../modals/InviteModal'
 import ServerSettingsModal from '../modals/ServerSettingsModal'
@@ -44,6 +46,9 @@ export default function ChannelSidebar() {
     queryFn: () => api.get(`/servers/${serverId}`).then(r => r.data),
     enabled: !!serverId,
   })
+
+  const roomParticipants = useVoice(s => s.roomParticipants)
+  const voiceChannelId = useVoice(s => s.channelId)
 
   const { data: dms = [] } = useQuery({
     queryKey: ['dms'],
@@ -164,28 +169,57 @@ export default function ChannelSidebar() {
                   </button>
                 </div>
 
-                {!isCollapsed && groupChannels.map((ch: any) => (
-                  <button
-                    key={ch.id}
-                    onClick={() => nav(`/servers/${serverId}/channels/${ch.id}`)}
-                    className={`flex items-center gap-1.5 w-full px-2 py-1.5 rounded transition text-left group
-                      ${channelId === ch.id
-                        ? 'bg-fc-hover text-white'
-                        : unreadCounts[ch.id] > 0
-                          ? 'text-white font-semibold hover:bg-fc-hover/50'
-                          : 'text-fc-muted hover:bg-fc-hover/50 hover:text-fc-text'}`}
-                  >
-                    <span className={channelId === ch.id ? 'text-white' : unreadCounts[ch.id] > 0 ? 'text-white' : 'text-fc-muted'}>
-                      <ChannelIcon type={ch.type} size={16} />
-                    </span>
-                    <span className="text-sm truncate flex-1">{ch.name}</span>
-                    {unreadCounts[ch.id] > 0 && channelId !== ch.id && (
-                      <span className="flex-shrink-0 min-w-[18px] h-[18px] bg-fc-red text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
-                        {unreadCounts[ch.id] > 99 ? '99+' : unreadCounts[ch.id]}
-                      </span>
-                    )}
-                  </button>
-                ))}
+                {!isCollapsed && groupChannels.map((ch: any) => {
+                  const isVoice = ch.type === 'voice' || ch.type === 'video' || ch.type === 'stage'
+                  const participants = isVoice ? (roomParticipants[ch.id] ?? []) : []
+                  const isMeConnected = voiceChannelId === ch.id
+
+                  return (
+                    <div key={ch.id}>
+                      <button
+                        onClick={() => nav(`/servers/${serverId}/channels/${ch.id}`)}
+                        className={`flex items-center gap-1.5 w-full px-2 py-1.5 rounded transition text-left group
+                          ${channelId === ch.id
+                            ? 'bg-fc-hover text-white'
+                            : unreadCounts[ch.id] > 0
+                              ? 'text-white font-semibold hover:bg-fc-hover/50'
+                              : 'text-fc-muted hover:bg-fc-hover/50 hover:text-fc-text'}`}
+                      >
+                        <span className={channelId === ch.id ? 'text-white' : unreadCounts[ch.id] > 0 ? 'text-white' : 'text-fc-muted'}>
+                          <ChannelIcon type={ch.type} size={16} />
+                        </span>
+                        <span className="text-sm truncate flex-1">{ch.name}</span>
+                        {isMeConnected && (
+                          <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" title="Vous êtes connecté ici" />
+                        )}
+                        {unreadCounts[ch.id] > 0 && channelId !== ch.id && !isVoice && (
+                          <span className="flex-shrink-0 min-w-[18px] h-[18px] bg-fc-red text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
+                            {unreadCounts[ch.id] > 99 ? '99+' : unreadCounts[ch.id]}
+                          </span>
+                        )}
+                      </button>
+
+                      {/* Participants vocaux */}
+                      {isVoice && participants.length > 0 && (
+                        <div className="ml-5 mb-0.5 space-y-0.5">
+                          {participants.map(p => (
+                            <div key={p.userId} className="flex items-center gap-1.5 px-2 py-0.5 rounded text-fc-muted/80">
+                              <div className="w-5 h-5 rounded-full bg-fc-accent overflow-hidden flex-shrink-0 flex items-center justify-center text-[10px] font-bold text-white">
+                                {p.avatar
+                                  ? <img src={p.avatar} alt="" className="w-full h-full object-cover" />
+                                  : p.username.charAt(0).toUpperCase()}
+                              </div>
+                              <span className="text-[11px] truncate flex-1">{p.username}</span>
+                              {p.muted && <MicOff size={9} className="text-red-400 flex-shrink-0" />}
+                              {p.screen && <Monitor size={9} className="text-green-400 flex-shrink-0" />}
+                              {p.video && !p.screen && <Video size={9} className="text-blue-400 flex-shrink-0" />}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )
           })}

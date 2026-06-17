@@ -9,7 +9,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-use crate::{middleware::auth::verify_token, state::AppState};
+use crate::{middleware::auth::verify_token, state::{AppState, VoiceStateData}};
 
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
@@ -109,7 +109,17 @@ async fn cleanup_voice(state: &AppState, user_id: Uuid) {
             "user_id": user_id,
             "channel_id": channel_id,
         });
-        state.broadcast_to_voice_room(channel_id, event.to_string()).await;
+        // Broadcast à tous les clients connectés (sidebar participantes globale)
+        broadcast_to_all(state, user_id, event.to_string()).await;
+    }
+}
+
+async fn broadcast_to_all(state: &AppState, exclude: Uuid, event: String) {
+    let clients = state.clients.read().await;
+    for (uid, tx) in clients.iter() {
+        if *uid != exclude {
+            let _ = tx.send(event.clone());
+        }
     }
 }
 
@@ -162,10 +172,9 @@ async fn handle_ws_message(state: &AppState, user_id: Uuid, text: &str) {
                 return;
             };
 
-            // Récupérer les participants existants
             let existing_ids = state.voice_join(user_id, channel_id).await;
 
-            // Chercher les infos des pairs existants
+            // Construire la liste des pairs existants avec leur état vocal
             let mut existing_peers = Vec::new();
             for peer_id in &existing_ids {
                 if let Ok(row) = sqlx::query(
@@ -176,32 +185,33 @@ async fn handle_ws_message(state: &AppState, user_id: Uuid, text: &str) {
                 .await
                 {
                     use sqlx::Row;
+                    let vs = state.voice_states.read().await.get(peer_id).cloned();
                     existing_peers.push(serde_json::json!({
                         "user_id": peer_id,
                         "username": row.get::<String, _>("username"),
                         "avatar": row.get::<Option<String>, _>("avatar"),
                         "discriminator": row.get::<String, _>("discriminator"),
+                        "muted": vs.as_ref().map(|v| v.muted).unwrap_or(false),
+                        "video": vs.as_ref().map(|v| v.video).unwrap_or(false),
+                        "screen": vs.as_ref().map(|v| v.screen).unwrap_or(false),
                     }));
                 }
             }
 
-            // Envoyer au rejoignant la liste des pairs existants → il créera les offres
-            let joining_event = serde_json::json!({
+            state.broadcast_to_user(user_id, serde_json::json!({
                 "type": "VOICE_EXISTING_PEERS",
                 "channel_id": channel_id,
                 "peers": existing_peers,
-            });
-            state.broadcast_to_user(user_id, joining_event.to_string()).await;
+            }).to_string()).await;
 
             // Récupérer les infos du rejoignant
-            let joiner_info = sqlx::query(
+            if let Ok(Some(row)) = sqlx::query(
                 "SELECT username, avatar, discriminator FROM users WHERE id=$1"
             )
             .bind(user_id)
             .fetch_optional(&state.db)
-            .await;
-
-            if let Ok(Some(row)) = joiner_info {
+            .await
+            {
                 use sqlx::Row;
                 let notif = serde_json::json!({
                     "type": "VOICE_USER_JOINED",
@@ -211,13 +221,8 @@ async fn handle_ws_message(state: &AppState, user_id: Uuid, text: &str) {
                     "avatar": row.get::<Option<String>, _>("avatar"),
                     "discriminator": row.get::<String, _>("discriminator"),
                 });
-                // Notifier les pairs existants (pas le rejoignant lui-même)
-                let clients = state.clients.read().await;
-                for peer_id in &existing_ids {
-                    if let Some(tx) = clients.get(peer_id) {
-                        let _ = tx.send(notif.to_string());
-                    }
-                }
+                // Broadcast global : tous les clients voient le join (sidebar)
+                broadcast_to_all(state, user_id, notif.to_string()).await;
             }
         }
 
@@ -225,8 +230,33 @@ async fn handle_ws_message(state: &AppState, user_id: Uuid, text: &str) {
             cleanup_voice(state, user_id).await;
         }
 
+        Some("VOICE_STATE") => {
+            let Some(channel_id) = msg["channel_id"].as_str().and_then(|s| s.parse::<Uuid>().ok()) else {
+                return;
+            };
+            let muted = msg["muted"].as_bool().unwrap_or(false);
+            let deafened = msg["deafened"].as_bool().unwrap_or(false);
+            let video = msg["video"].as_bool().unwrap_or(false);
+            let screen = msg["screen"].as_bool().unwrap_or(false);
+
+            state.voice_states.write().await.insert(user_id, VoiceStateData {
+                channel_id, muted, deafened, video, screen,
+            });
+
+            let event = serde_json::json!({
+                "type": "VOICE_STATE_UPDATE",
+                "user_id": user_id,
+                "channel_id": channel_id,
+                "muted": muted,
+                "deafened": deafened,
+                "video": video,
+                "screen": screen,
+            });
+            // Broadcast à toute la room + à tous pour la sidebar
+            broadcast_to_all(state, user_id, event.to_string()).await;
+        }
+
         Some("VOICE_SIGNAL") => {
-            // Relayer le message de signaling (offer/answer/ICE) vers le pair cible
             let Some(to) = msg["to"].as_str().and_then(|s| s.parse::<Uuid>().ok()) else {
                 return;
             };

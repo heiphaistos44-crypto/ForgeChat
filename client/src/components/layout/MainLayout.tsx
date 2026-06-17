@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom'
 import ServerSidebar from './ServerSidebar'
 import ChannelSidebar from './ChannelSidebar'
 import UserPanel from './UserPanel'
+import VoiceBar from '../voice/VoiceBar'
 
 export default function MainLayout() {
   return (
@@ -9,9 +10,13 @@ export default function MainLayout() {
       {/* Barre des serveurs (gauche, étroite) */}
       <ServerSidebar />
 
-      {/* Sidebar canaux */}
+      {/* Sidebar canaux + panel utilisateur */}
       <div className="flex flex-col w-60 bg-fc-channel flex-shrink-0">
-        <ChannelSidebar />
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+          <ChannelSidebar />
+        </div>
+        {/* VoiceBar s'affiche seulement si connecté à un canal vocal */}
+        <VoiceBar />
         <UserPanel />
       </div>
 

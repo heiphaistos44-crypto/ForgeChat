@@ -4,6 +4,7 @@ import { useAuth } from './store/auth'
 import { useWs } from './store/ws'
 import { usePresence } from './store/presence'
 import { useUnread } from './store/unread'
+import { useVoice } from './store/voice'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
@@ -31,6 +32,7 @@ function AppInner() {
   const { connect, disconnect, on } = useWs()
   const setStatus = usePresence(s => s.setStatus)
   const { increment: incrUnread, fetchAll: fetchUnread } = useUnread()
+  const initVoiceListeners = useVoice(s => s.initGlobalListeners)
   const nav = useNavigate()
   const [showQuickSwitcher, setShowQuickSwitcher] = React.useState(false)
 
@@ -42,6 +44,13 @@ function AppInner() {
     if (token) connect(token)
     fetchUnread()
     return () => disconnect()
+  }, [user?.id])
+
+  // Listeners globaux voix (joins/leaves pour la sidebar)
+  useEffect(() => {
+    if (!user) return
+    const off = initVoiceListeners()
+    return off
   }, [user?.id])
 
   useEffect(() => {
