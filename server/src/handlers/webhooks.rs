@@ -90,7 +90,7 @@ pub async fn create_webhook(
         channel_id: row.get("channel_id"),
         name: row.get("name"),
         avatar: row.get("avatar"),
-        token: row.get("token"),
+        token_preview: { let t: String = row.get("token"); format!("{}...", &t[..t.len().min(8)]) },
         created_by: row.get("created_by"),
         created_at: row.get("created_at"),
     }))
