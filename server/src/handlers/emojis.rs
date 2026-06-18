@@ -44,7 +44,10 @@ pub async fn create_emoji(
     Path(server_id): Path<Uuid>,
     mut multipart: Multipart,
 ) -> Result<Json<serde_json::Value>> {
-    require_member(&state, claims.sub, server_id).await?;
+    // Créer un emoji nécessite MANAGE_SERVER (permission modérateur)
+    use crate::handlers::servers::require_permission;
+    use crate::models::role::Permissions;
+    require_permission(&state, claims.sub, server_id, Permissions::MANAGE_SERVER).await?;
 
     let upload_dir = PathBuf::from(&state.config.upload_dir).join("emojis");
     tokio::fs::create_dir_all(&upload_dir).await
@@ -122,7 +125,10 @@ pub async fn delete_emoji(
     Extension(claims): Extension<Claims>,
     Path((server_id, emoji_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<serde_json::Value>> {
-    require_member(&state, claims.sub, server_id).await?;
+    // Supprimer un emoji nécessite MANAGE_SERVER (cohérent avec create_emoji)
+    use crate::handlers::servers::require_permission;
+    use crate::models::role::Permissions;
+    require_permission(&state, claims.sub, server_id, Permissions::MANAGE_SERVER).await?;
 
     // Vérifier que l'emoji appartient au serveur
     let row = sqlx::query_scalar::<_, String>(

@@ -253,9 +253,18 @@ pub async fn update_post(
         return Err(AppError::Forbidden);
     }
 
+    // Seul le contenu peut être modifié par le créateur
+    // pinned et locked sont des opérations admin réservées à MANAGE_MESSAGES
+    let content = body["content"].as_str();
     let pinned = body["pinned"].as_bool();
     let locked = body["locked"].as_bool();
-    let content = body["content"].as_str();
+
+    // Si pinned ou locked sont demandés, vérifier la permission admin
+    if pinned.is_some() || locked.is_some() {
+        use super::servers::require_permission;
+        use crate::models::role::Permissions;
+        require_permission(&state, claims.sub, server_id, Permissions::MANAGE_MESSAGES).await?;
+    }
 
     sqlx::query(
         "UPDATE forum_posts SET

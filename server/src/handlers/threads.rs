@@ -226,6 +226,23 @@ pub async fn archive_thread(
 ) -> Result<Json<Thread>> {
     require_member(&state, claims.sub, server_id).await?;
 
+    // Vérifier que l'utilisateur est le créateur du thread OU a la permission MANAGE_MESSAGES
+    let thread_row = sqlx::query(
+        "SELECT creator_id FROM threads WHERE id = $1"
+    )
+    .bind(thread_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Thread introuvable".into()))?;
+
+    use sqlx::Row;
+    let creator_id: Uuid = thread_row.get("creator_id");
+    if creator_id != claims.sub {
+        use super::servers::require_permission;
+        use crate::models::role::Permissions;
+        require_permission(&state, claims.sub, server_id, Permissions::MANAGE_MESSAGES).await?;
+    }
+
     let archived = body["archived"].as_bool().unwrap_or(true);
     let locked = body["locked"].as_bool();
 

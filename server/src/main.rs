@@ -16,8 +16,10 @@ use std::{path::PathBuf, time::Duration};
 use tower_http::{
     cors::CorsLayer,
     services::ServeDir,
+    set_header::SetResponseHeaderLayer,
     trace::TraceLayer,
 };
+use axum::http::{header, HeaderValue};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::{config::Config, state::AppState};
@@ -92,8 +94,20 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/webhook/:id/:token", post(handlers::webhooks::execute_webhook))
         // Routes protégées
         .nest("/api", protected_routes(state.clone()))
-        // Fichiers uploadés
-        .nest_service("/uploads", ServeDir::new(&config.upload_dir))
+        // Fichiers uploadés — avec en-têtes de sécurité pour éviter le sniffing de type MIME
+        .nest_service(
+            "/uploads",
+            tower::ServiceBuilder::new()
+                .layer(SetResponseHeaderLayer::if_not_present(
+                    header::X_CONTENT_TYPE_OPTIONS,
+                    HeaderValue::from_static("nosniff"),
+                ))
+                .layer(SetResponseHeaderLayer::if_not_present(
+                    header::CONTENT_SECURITY_POLICY,
+                    HeaderValue::from_static("default-src 'none'; sandbox"),
+                ))
+                .service(ServeDir::new(&config.upload_dir))
+        )
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);

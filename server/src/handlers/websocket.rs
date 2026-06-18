@@ -59,6 +59,11 @@ async fn handle_socket(socket: WebSocket, state: AppState, token: String, secret
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
                 Message::Text(text) => {
+                    // Limite de taille pour éviter les attaques DoS
+                    if text.len() > 64 * 1024 {
+                        tracing::warn!("WS: message trop grand ({} bytes) de {}", text.len(), user_id);
+                        break;
+                    }
                     handle_ws_message(&state_clone, user_id, &text).await;
                 }
                 Message::Close(_) => break,
@@ -132,18 +137,50 @@ async fn handle_ws_message(state: &AppState, user_id: Uuid, text: &str) {
         // ────────── Canal texte ──────────
         Some("SUBSCRIBE_CHANNEL") => {
             if let Some(channel_id) = msg["channel_id"].as_str().and_then(|s| s.parse::<Uuid>().ok()) {
-                let tx = state.get_or_create_channel_tx(channel_id).await;
-                let read = state.clients.read().await;
-                if let Some(user_tx) = read.get(&user_id) {
-                    let mut rx = tx.subscribe();
-                    let user_tx = user_tx.clone();
-                    tokio::spawn(async move {
-                        while let Ok(msg) = rx.recv().await {
-                            if user_tx.send(msg).is_err() {
-                                break;
+                // Vérifier que l'utilisateur est membre du serveur auquel appartient ce channel
+                let member_ok = sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM channels c
+                        JOIN server_members sm ON sm.server_id = c.server_id
+                        WHERE c.id = $1 AND sm.user_id = $2
+                    )"
+                )
+                .bind(channel_id)
+                .bind(user_id)
+                .fetch_one(&state.db)
+                .await
+                .unwrap_or(false);
+
+                // Autoriser aussi les DM channels
+                let dm_ok = if !member_ok {
+                    sqlx::query_scalar::<_, bool>(
+                        "SELECT EXISTS(SELECT 1 FROM dm_channels WHERE id = $1 AND (user1_id = $2 OR user2_id = $2))"
+                    )
+                    .bind(channel_id)
+                    .bind(user_id)
+                    .fetch_one(&state.db)
+                    .await
+                    .unwrap_or(false)
+                } else {
+                    false
+                };
+
+                if !member_ok && !dm_ok {
+                    tracing::warn!("WS SUBSCRIBE_CHANNEL refusé: user {} canal {}", user_id, channel_id);
+                } else {
+                    let tx = state.get_or_create_channel_tx(channel_id).await;
+                    let read = state.clients.read().await;
+                    if let Some(user_tx) = read.get(&user_id) {
+                        let mut rx = tx.subscribe();
+                        let user_tx = user_tx.clone();
+                        tokio::spawn(async move {
+                            while let Ok(msg) = rx.recv().await {
+                                if user_tx.send(msg).is_err() {
+                                    break;
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
                 }
             }
         }

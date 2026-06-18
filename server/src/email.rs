@@ -12,9 +12,10 @@ pub async fn send_verification_email(config: &Config, to: &str, code: &str) -> a
         &config.smtp_user,
         &config.smtp_pass,
     ) else {
+        // Ne pas logger le code en clair — risque de fuite dans les logs
         tracing::warn!(
-            "SMTP non configuré — code de vérification pour {} : {}",
-            to, code
+            "SMTP non configuré — code de vérification généré pour {} (non envoyé)",
+            to
         );
         return Ok(());
     };

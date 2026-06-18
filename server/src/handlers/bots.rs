@@ -69,8 +69,9 @@ pub async fn create_bot(
     .await?;
 
     let raw_token = generate_raw_token();
-    let token_hash = bcrypt::hash(&raw_token, 4)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    // SHA-256 suffisant pour les tokens bot (haute entropie 48 bytes random)
+    // Évite la boucle bcrypt coûteuse en temps (timing side-channel lors du lookup)
+    let token_hash = hash_bot_token(&raw_token);
 
     sqlx::query(
         "INSERT INTO bot_tokens (bot_user_id, server_id, token_hash, name)
@@ -149,8 +150,7 @@ pub async fn regenerate_token(
     require_permission(&state, claims.sub, server_id, Permissions::MANAGE_SERVER).await?;
 
     let raw_token = generate_raw_token();
-    let token_hash = bcrypt::hash(&raw_token, 4)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    let token_hash = hash_bot_token(&raw_token);
 
     let updated = sqlx::query(
         "UPDATE bot_tokens SET token_hash=$1 WHERE bot_user_id=$2 AND server_id=$3"
@@ -171,6 +171,15 @@ pub async fn regenerate_token(
     })))
 }
 
+/// Hash déterministe d'un token bot (SHA-256 base64) pour lookup direct en DB
+fn hash_bot_token(token: &str) -> String {
+    use base64::Engine;
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(token.as_bytes());
+    base64::engine::general_purpose::STANDARD.encode(h.finalize())
+}
+
 // Route sans JWT — authentification via header "Authorization: Bot <token>"
 pub async fn bot_send_message(
     State(state): State<AppState>,
@@ -183,25 +192,20 @@ pub async fn bot_send_message(
         .and_then(|v| v.strip_prefix("Bot "))
         .ok_or(AppError::Unauthorized)?;
 
-    // Retrouver le bot via token hash (itérer les tokens du serveur)
-    let tokens = sqlx::query(
-        "SELECT bot_user_id, token_hash FROM bot_tokens WHERE server_id=$1"
+    // Lookup direct par hash SHA-256 — O(1), pas de timing leak via boucle bcrypt
+    let token_hash = hash_bot_token(raw_token);
+    use sqlx::Row;
+    let row = sqlx::query(
+        "SELECT bot_user_id FROM bot_tokens WHERE token_hash=$1 AND server_id=$2"
     )
+    .bind(&token_hash)
     .bind(body.server_id)
-    .fetch_all(&state.db)
+    .fetch_optional(&state.db)
     .await?;
 
-    use sqlx::Row;
-    let mut bot_user_id: Option<Uuid> = None;
-    for row in &tokens {
-        let hash: String = row.get("token_hash");
-        if bcrypt::verify(raw_token, &hash).unwrap_or(false) {
-            bot_user_id = Some(row.get("bot_user_id"));
-            break;
-        }
-    }
-
-    let bot_id = bot_user_id.ok_or(AppError::Unauthorized)?;
+    let bot_id: Uuid = row
+        .map(|r| r.get("bot_user_id"))
+        .ok_or(AppError::Unauthorized)?;
 
     // Vérifier que le channel appartient bien au server indiqué
     let channel_in_server = sqlx::query_scalar::<_, bool>(

@@ -197,6 +197,23 @@ pub async fn vote_poll(
         return Err(AppError::BadRequest("Un seul choix autorisé".into()));
     }
 
+    if body.option_ids.is_empty() {
+        return Err(AppError::BadRequest("Au moins une option requise".into()));
+    }
+
+    // Vérifier que tous les option_ids appartiennent bien à ce sondage (IDOR protection)
+    let valid_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM poll_options WHERE poll_id=$1 AND id = ANY($2)"
+    )
+    .bind(poll_id)
+    .bind(&body.option_ids)
+    .fetch_one(&state.db)
+    .await?;
+
+    if valid_count as usize != body.option_ids.len() {
+        return Err(AppError::BadRequest("Options invalides pour ce sondage".into()));
+    }
+
     // Supprimer les anciens votes
     sqlx::query("DELETE FROM poll_votes WHERE poll_id=$1 AND user_id=$2")
         .bind(poll_id).bind(claims.sub).execute(&state.db).await?;

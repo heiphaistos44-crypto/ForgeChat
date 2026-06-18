@@ -114,6 +114,21 @@ pub async fn verify_email(
         .as_str()
         .ok_or_else(|| AppError::BadRequest("code requis".into()))?;
 
+    // Rate limit : 5 tentatives max par email pour éviter le brute-force sur code 4 chiffres
+    {
+        let key = format!("verify_attempts:{}", email);
+        let mut redis = state.redis.lock().await;
+        let count: Option<i64> = redis.get(&key).await.unwrap_or(None);
+        let count = count.unwrap_or(0);
+        if count >= 5 {
+            return Err(AppError::TooManyRequests);
+        }
+        let _: () = redis.incr(&key, 1).await.unwrap_or(());
+        if count == 0 {
+            let _: () = redis.expire(&key, 900).await.unwrap_or(());
+        }
+    }
+
     let pending = sqlx::query_as::<_, PendingRegistration>(
         "SELECT * FROM pending_registrations WHERE email=$1",
     )
@@ -152,6 +167,13 @@ pub async fn verify_email(
         .bind(&email)
         .execute(&state.db)
         .await?;
+
+    // Nettoyer le rate limit de vérification après succès
+    {
+        let key = format!("verify_attempts:{}", email);
+        let mut redis = state.redis.lock().await;
+        let _: () = redis.del(&key).await.unwrap_or(());
+    }
 
     let access_token = create_token(user.id, &state.config.jwt_secret)
         .map_err(|e| AppError::Internal(e))?;
